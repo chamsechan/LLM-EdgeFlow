@@ -171,8 +171,8 @@ struct ReentryReads {
              registry.ListDefinitions().size() == 1 &&
              registry.Snapshot().definitions.size() == 1;
     });
-    // Do not join while creator code is executing: a lock regression must
-    // finish Create before the blocked reader can finish.
+    // 创建者代码执行期间不要 join：若锁出现回归，被阻塞的读者必须等 Create
+    // 完成后才能结束。
     const bool ready =
         read.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
     attempts.push_back({stage, std::move(read), ready});

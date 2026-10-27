@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON launcher preserves complete request and SDK response documents."""
+"""JSON 启动器保留完整的请求文档和 SDK 响应文档。"""
 
 import importlib.util
 import json
@@ -35,7 +35,7 @@ class JsonPromptConsumerTest(unittest.TestCase):
         forwarded = json.loads(encoded)
         self.assertEqual(forwarded, document)
         self.assertEqual(forwarded["query"].encode(), query.encode())
-        # Field selection and required query validation stay in the Adapter.
+        # 字段选择和必填 query 校验留在 Adapter 中。
         self.assertEqual(json.loads(launcher.encode_request('{"other":"kept"}')), {"other": "kept"})
 
     def test_invalid_container_or_empty_dataset_is_rejected_before_creating_run_artifacts(self):

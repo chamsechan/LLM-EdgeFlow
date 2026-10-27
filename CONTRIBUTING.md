@@ -143,6 +143,23 @@ identifiers. Share model helpers under a common owner, not inside a consuming mo
 The converter `(type, name)` identifies an I/O contract; model size and Backend selection belong in deployment
 configuration and Profiles. Update current documentation and examples when renaming code.
 
+### Source comments
+
+Write comments and docstrings in Simplified Chinese. Keep code identifiers, field names,
+commands, paths, standards and the canonical component names (Pipeline, Node, Model, Backend,
+Converter, Session, Catalog, Blackboard) as written. User-visible text such as log messages,
+error strings and CLI help, including a module docstring passed to `argparse`, follows its own
+output language and is not a comment.
+
+- State the current constraint and its reason. Leave development history, review or ticket
+  numbers, "new/old version" wording and pending decisions to Git, PRs and issues.
+- Describe guarantees precisely; avoid promotional or absolute wording the code cannot prove.
+- Use full-width punctuation in Chinese sentences, including `（）` around Chinese text; keep
+  ASCII punctuation inside code, expressions and English names. Separate Chinese from adjacent
+  ASCII words with one space and add no other spaces between Chinese characters.
+- Use one term per concept: 中性 (neutral), 门面 (facade), 提供者 (provider),
+  fail-closed. Keep numbered steps contiguous and wrap lines at clause boundaries.
+
 ## 5. Update durable documentation proportionally
 
 - Keep active architecture and developer documentation aligned with the implementation.

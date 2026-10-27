@@ -45,7 +45,7 @@ probe(STATIC a=1 z=3)
 if(valid)
   message(FATAL_ERROR "Changed ABI option reused stale cache")
 endif()
-# Identity directories retain the original cache when any ABI input changes.
+# 任一 ABI 输入变化时，身份目录保留原有缓存。
 function(identity_probe)
   edgeflow_prepare_third_party_cache(
     NAME identity VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/identities"
@@ -137,7 +137,7 @@ probe(PREBUILT)
 if(valid)
   message(FATAL_ERROR "Changing the actual macOS target architecture must invalidate prebuilt cache")
 endif()
-# A matching marker cannot make an incomplete cache importable.
+# 标记匹配也不能让不完整的缓存变得可导入。
 function(required_probe)
   edgeflow_prepare_third_party_cache(
     NAME required VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/required"
@@ -158,7 +158,7 @@ if(NOT required_valid)
   message(FATAL_ERROR "Complete cache with a matching marker must be reusable")
 endif()
 
-# Verified downloads publish only complete files and recheck cached bytes.
+# 经校验的下载只发布完整文件，并重新校验已缓存的字节。
 file(WRITE "${TEST_ROOT}/source/payload.txt" "verified payload\n")
 file(SHA256 "${TEST_ROOT}/source/payload.txt" payload_sha)
 set(url_download "${TEST_ROOT}/downloads/url/payload.txt")

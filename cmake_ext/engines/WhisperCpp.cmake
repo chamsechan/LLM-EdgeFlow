@@ -1,7 +1,7 @@
 include(FetchContent)
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 
-# whisper.cpp 开源语音转写引擎配置 (用于 float32 16kHz PCM 音频转写)
+# whisper.cpp 开源语音转写引擎配置（用于 float32 16kHz PCM 音频转写）
 
 option(WHISPER_CPP_FORCE_REBUILD "Force rebuilding whisper.cpp from source even if cached in 3rdparty" OFF)
 set(LLM_EDGEFLOW_HAS_WHISPERCPP OFF)

@@ -7,7 +7,7 @@
 
 namespace llm_edgeflow {
 
-// 源于 Operator facade 之下的失败。其内部 Pipeline、Node 和 Model 错误码
+// 源于 Operator 门面之下的失败。其内部 Pipeline、Node 和 Model 错误码
 // 只通过 GetOperatorLastError() 报告；宿主收到的是失败类别对应的平台码。
 enum class OperatorFailureStage {
   kCreatePreparation,   // 配置、部署、模型和 Backend 加载

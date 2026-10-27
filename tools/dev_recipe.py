@@ -352,8 +352,8 @@ def verify_focused_tests(runner, name, root):
     filter_arg = f"--gtest_filter={prefix}*"
     discovery = subprocess.run([str(runner), filter_arg, "--gtest_list_tests"], cwd=root,
                                capture_output=True, text=True, check=False)
-    # The shared runner lists every compiled case for CTest discovery, even with
-    # an explicit filter. Count only this recipe's cases before comparing results.
+    # 即使给出显式过滤器，共享 runner 也会为 CTest 发现列出全部已编译用例。
+    # 比较结果前只统计本 recipe 的用例。
     suite, count = "", 0
     for line in discovery.stdout.splitlines():
         entry = line.split("#", 1)[0].strip()

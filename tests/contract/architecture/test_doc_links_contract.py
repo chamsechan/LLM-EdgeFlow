@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the repository Markdown checker through its public CLI."""
+"""通过公开 CLI 验证仓库的 Markdown 检查器。"""
 
 from pathlib import Path
 import subprocess

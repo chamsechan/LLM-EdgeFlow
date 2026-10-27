@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Compile the actual public scaffold's sources and --write-test output.
+"""编译公开脚手架的实际源码和 --write-test 输出。
 
-Only anonymous namespace names are isolated for the existing single-TU runner.
-The scaffold owns all generated algorithms and their emitted consumer tests.
-The first custom Node tutorial is replayed on the same scaffold output: each
-anchored code block replaces its same-named definition, and every stage is
-compiled, executed and checked against the Catalog facts the tutorial states.
+只为现有的单翻译单元 runner 隔离匿名命名空间中的名称。
+脚手架负责全部生成的算法及其生成的使用方测试。
+第一个自定义 Node 教程在同一份脚手架输出上重放：每个带锚点的代码块替换
+同名定义，每个阶段都会编译、执行，并对照教程写明的 Catalog 信息检查。
 """
 
 import os
@@ -21,7 +20,7 @@ TUTORIAL = ROOT / "doc/dev_guide/first_custom_node.md"
 TUTORIAL_NODE = "my_text_normalize"
 ANCHOR = re.compile(r"<!-- tutorial-code: (stage\d+) (node|test) -->\n```cpp\n(.*?)\n```", re.S)
 LITERAL = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
-# Catalog facts each tutorial stage states: own config fields and model slots.
+# 教程每个阶段写明的 Catalog 信息：自有配置字段和模型槽位。
 TUTORIAL_CATALOG = {
     "stage1": ([], []),
     "stage2": (["replacement"], []),
@@ -30,7 +29,7 @@ TUTORIAL_CATALOG = {
 
 
 def isolated_namespaces(content, namespace):
-    """Keep generated bodies intact while avoiding single-TU local-name clashes."""
+    """保持生成的函数体不变，同时避免单翻译单元内的局部名称冲突。"""
     counter = 0
 
     def replace(match):
@@ -54,7 +53,7 @@ def tutorial_blocks(text):
 
 
 def definitions(lines):
-    """Top-level definitions starting at column 0 as (name, kind, first, last) line ranges."""
+    """从第 0 列开始的顶层定义，以 (name, kind, first, last) 行范围表示。"""
     found = []
     index = 0
     while index < len(lines):
@@ -157,7 +156,7 @@ def tutorial_sections(root, environment, tutorial):
 
 
 def generate(output, tutorial=TUTORIAL):
-    # Each entry selects a distinct body of the single Node structure or typed call signature.
+    # 每一项选择单一 Node 结构或类型化调用签名下的一种函数体。
     requests = [
         ("scaffold_text_identity", ["--in-port", "sentences:TextBatch", "--out-port", "answers:TextBatch"]),
         ("scaffold_audio_identity", ["--in-port", "samples:AudioPcmBatch", "--out-port", "copy:AudioPcmBatch"]),
@@ -189,7 +188,7 @@ def generate(output, tutorial=TUTORIAL):
                 sections.append(isolated_namespaces(content, f"fixture_{name}_{kind}"))
         sections.extend(tutorial_sections(root, environment, tutorial))
     output.parent.mkdir(parents=True, exist_ok=True)
-    # Publish a complete fixture artifact; interrupted generation retains the prior one.
+    # 发布完整的夹具产物；生成中断时保留上一次的产物。
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
                                      prefix=f".{output.name}.", delete=False) as stream:
         staged = Path(stream.name)

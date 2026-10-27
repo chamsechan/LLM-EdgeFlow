@@ -14,9 +14,8 @@
 namespace llm_edgeflow {
 namespace {
 
-// Routing uses the current registered mock bindings. Business field conversion
-// is covered by the real Converter suites; this carrier is only valid routing
-// data.
+// 路由使用当前已注册的 mock binding。业务字段转换由真实的 Converter 套件
+// 覆盖；这里的载体只是合法的路由数据。
 using test_support::MockTextCarrier;
 
 class ConverterRoutingTest : public ::testing::Test {

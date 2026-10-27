@@ -13,7 +13,7 @@
 namespace llm_edgeflow::operator_api {
 
 /**
- * @brief 目标计算平台枚举 (显式支持白名单)
+ * @brief 目标计算平台枚举（显式支持白名单）
  */
 enum class ComputePlatform : int32_t {
   kUnknown = 0,
@@ -35,7 +35,7 @@ enum class ControlCommand : int32_t {
 };
 
 // -------------------------------------------------------------
-// 强类型 Control 参数结构体契约 (每个命令声明唯一结构体，杜绝内存探测)
+// 强类型 Control 参数结构体契约（每个命令对应唯一结构体，无需探测内存布局）
 // -------------------------------------------------------------
 
 /**
@@ -43,7 +43,7 @@ enum class ControlCommand : int32_t {
  */
 struct ControlUpdateRulesParam {
   const char* rules_json_str =
-      nullptr;  // JSON 格式的规则/分类词表字符串 (带最大长度约束)
+      nullptr;  // JSON 格式的规则/分类词表字符串（带最大长度约束）
 };
 
 /**
@@ -51,7 +51,7 @@ struct ControlUpdateRulesParam {
  */
 struct ControlSwitchPromptParam {
   const char* prompt_template_str =
-      nullptr;  // 提示词模板字符串 (包含 {{context}}/{{query}} 等占位符)
+      nullptr;  // 提示词模板字符串（包含 {{context}}/{{query}} 等占位符）
 };
 
 /**
@@ -72,11 +72,11 @@ struct CreateParam {
   const char* cfg_file_name = nullptr;  // 必填、非空、相对配置文件路径
   const char* model_path =
       nullptr;  // 必填、非空，模型和配置共同所在的目录根路径
-  int32_t device_id = 0;  // 目标加速设备 ID (必须 >= 0)
+  int32_t device_id = 0;  // 目标加速设备 ID（必须 >= 0）
   ComputePlatform compute_platform =
       ComputePlatform::kUnknown;  // 目标硬件计算平台
   uint32_t max_frame_depth =
-      25;  // 每个逻辑输出槽位的池深度 (0 按默认 25 归一化)
+      25;  // 每个逻辑输出槽位的池深度（0 按默认 25 归一化）
 };
 
 /**
@@ -92,8 +92,8 @@ using OpaqueData = std::shared_ptr<void>;
 // 输出行由宿主预先放入全部 key 且值为 nullptr；Process 成功后统一发布，
 // 失败时所有输出保持 nullptr。
 using NamedIo = std::unordered_map<std::string, OpaqueData>;
-// Process requires equal input/output sizes; inputs[i] pairs with outputs[i].
-// Carrier request IDs and image frame indices do not determine this pairing.
+// Process 要求输入与输出数量相等，inputs[i] 与 outputs[i] 配对。
+// 载体中的请求 ID 和图像帧序号不决定配对关系。
 using NamedIoBatch = std::vector<NamedIo>;
 
 /**

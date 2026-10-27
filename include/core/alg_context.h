@@ -16,9 +16,9 @@ namespace llm_edgeflow {
 class Pipeline;
 
 /**
- * @brief 请求级动态黑板上下文 (RequestContext)
+ * @brief 请求级 Blackboard 上下文
  *
- * 特点:
+ * 特点：
  * 1. 类型擦除的不可变快照存储 (std::any)
  * 2. Read 返回的视图在本 AlgContext 析构前保持有效且内容稳定
  * 3. Publish 对新 key 执行单次发布
@@ -29,7 +29,7 @@ class AlgContext {
   AlgContext() = default;
   ~AlgContext() = default;
 
-  // 禁止拷贝与移动 (持有多线程锁变量)
+  // 禁止拷贝与移动（持有多线程锁变量）
   AlgContext(const AlgContext&) = delete;
   AlgContext& operator=(const AlgContext&) = delete;
   AlgContext(AlgContext&&) = delete;

@@ -24,9 +24,8 @@ struct NodeBinding {
   std::string lifetime{};
 };
 
-// Algorithm tests supply explicit keys and consume the production declaration.
-// Validator tests separately own topology, boundary closure and flow
-// validation.
+// 算法测试提供显式 key 并使用生产声明。拓扑、边界闭合和数据流校验由
+// Validator 测试单独负责。
 struct NodeProbe {
   std::string diagnostic;
   ValidatedNodePlan plan;
@@ -91,8 +90,7 @@ struct NodeProbe {
       diagnostic = "Node creator returned null: " + type;
       return false;
     }
-    // node stays null unless Init succeeds, so callers never reach a node whose
-    // model binding or parameter preparation failed.
+    // Init 成功前 node 保持为空，调用方拿不到模型绑定或参数准备失败的 node。
     if (!node->Init({&plan, &session, &diagnostic})) {
       node.reset();
       return false;
@@ -118,7 +116,7 @@ inline std::string NodeOutputKey(const std::string& port) {
   return "output." + port;
 }
 
-// One request value for a logical input port.
+// 一个逻辑输入端口的请求值。
 struct NodeInput {
   template <typename Batch>
   NodeInput(std::string port, Batch batch)
@@ -132,8 +130,8 @@ struct NodeInput {
   std::function<bool(AlgContext&, const std::string&)> publish;
 };
 
-// One Process call. Output views belong to the request context owned here and
-// stay valid while this object lives.
+// 一次 Process 调用。输出视图属于此处持有的请求上下文，在本对象存活期间
+// 保持有效。
 class NodeRun {
  public:
   int status = 0;
@@ -152,10 +150,9 @@ class NodeRun {
   std::unique_ptr<AlgContext> context_ = std::make_unique<AlgContext>();
 };
 
-// Default entry for business Node tests: the author names logical ports and
-// supplies inputs, params and model doubles; the session, storage keys and
-// request contexts stay here. Tests that share a session, override port
-// lifetimes or chain nodes in one context use NodeProbe directly.
+// 业务 Node 测试的默认入口：作者给出逻辑端口名，提供输入、参数和模型替身；
+// Session、存储 key 和请求上下文由这里管理。需要共享 Session、覆盖端口
+// 生命周期或在同一上下文中串联多个 Node 的测试，直接使用 NodeProbe。
 class NodeUnderTest {
  public:
   std::string diagnostic;

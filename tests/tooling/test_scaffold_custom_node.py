@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public scaffold artifacts and atomic source/test publication."""
+"""公开脚手架的产物，以及源码与测试的原子发布。"""
 
 import importlib.util
 import json

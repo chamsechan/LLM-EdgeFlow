@@ -7,8 +7,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Operator 控制指令解析与参数适配器 (将 Operator 枚举与参数分发到
- * Pipeline::Control)
+ * @brief 把 Operator 控制枚举与参数转换为 Pipeline::Control 的输入
  */
 class OperatorControlRegistry {
  public:
@@ -19,7 +18,7 @@ class OperatorControlRegistry {
    * @param[out] out_cmd_id 映射后的内部控制指令 ID
    * @param[out] out_json_str 映射后的 JSON 参数字符串
    * @param[out] error_msg 结构化诊断错误信息
-   * @return 0 成功, 非 0 框架错误码（INVALID_ARGUMENT 表示参数非法）
+   * @return 0 成功，非 0 框架错误码（INVALID_ARGUMENT 表示参数非法）
    */
   static int ResolveControlParam(
       llm_edgeflow::operator_api::ControlCommand command, void* control_param,

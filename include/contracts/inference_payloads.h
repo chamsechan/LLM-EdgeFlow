@@ -63,8 +63,8 @@ struct AudioPcmPayload {
  */
 using AudioPcmBatch = std::vector<TraceableItem<AudioPcmPayload>>;
 
-// Request-owned RGB8 pixels in interleaved HWC order. stride is bytes per row,
-// including padding; data owns exactly height * stride bytes.
+// 请求持有的 RGB8 像素，按 HWC 交错排列。stride 是含填充的每行字节数；
+// data 恰好持有 height * stride 字节。
 struct ImageFrame {
   int width = 0;
   int height = 0;

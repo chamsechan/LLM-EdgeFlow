@@ -14,7 +14,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 已验证的不可变接入计划 (同时包含 I/O 转换器绑定与内部 Pipeline 计划)
+ * @brief 已验证的不可变接入计划（同时包含 I/O 转换器绑定与内部 Pipeline 计划）
  */
 struct ValidatedIoPlan : IoSelection {
   // 输出池内存预算已按此深度校验，创建运行时时不得更改。
@@ -26,8 +26,8 @@ struct ValidatedIoPlan : IoSelection {
 };
 
 /**
- * @brief 接入绑定解析器 (负责配置、转换器组合校验并调用 PipelineValidator
- * 进行中性边界验证)
+ * @brief 接入绑定解析器：校验配置与转换器组合，并调用 PipelineValidator
+ * 做中性边界校验
  */
 class IoPlanResolver {
  public:

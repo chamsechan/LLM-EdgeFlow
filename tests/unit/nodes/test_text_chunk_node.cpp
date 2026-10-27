@@ -144,7 +144,7 @@ TEST_F(TextChunkNodeTest, InvalidUtf8AfterValidParentPublishesNeitherOutput) {
   test_support::NodeProbe node;
   ASSERT_TRUE(Init(node, {{"chunk_size", 3}, {"overlap", 1}}));
   AlgContext context;
-  // Two bytes of an unfinished four-byte code point after an ASCII prefix.
+  // ASCII 前缀之后，一个未完成的四字节码点的前两个字节。
   const std::string invalid = std::string("no") + "\xF0\x9F";
   context.Publish(kText, TextBatch{{73, 9, "abcdef"}, {12, 4, invalid}});
   EXPECT_EQ(node.node->Process(&context), error::kInvalidUtf8);

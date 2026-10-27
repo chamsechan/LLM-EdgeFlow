@@ -60,8 +60,7 @@ bool CopyResult(ConsumerSession& session, const api::OperatorIoContract& io,
              "complete response carrier"))
     return false;
   copied->assign(result->text->value, result->text->length);
-  // The host copies bytes before returning the pool lease, then destroys
-  // safely.
+  // 宿主先复制字节再归还池租约，随后安全销毁。
   outputs.clear();
   return true;
 }

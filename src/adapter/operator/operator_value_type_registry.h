@@ -67,7 +67,7 @@ class OperatorValueTypeRegistry {
   OperatorValueTypeRegistry() = default;
 
   /**
-   * @brief 解析 Key (例如 "camera_0.frame") 提取命名空间和后缀
+   * @brief 解析 Key（例如 "camera_0.frame"）提取命名空间和后缀
    */
   static bool ParseKey(const std::string& key, std::string* out_namespace,
                        std::string* out_suffix) noexcept;
@@ -78,12 +78,12 @@ class OperatorValueTypeRegistry {
   bool HasConflict() const;
 
   /**
-   * @brief 全局初始化并冻结注册表 (幂等安全，若存在冲突返回 -6)
+   * @brief 全局初始化并冻结注册表（幂等安全，若存在冲突返回 -6）
    */
   int GlobalInit();
 
   /**
-   * @brief 注册值类型绑定 (在写入前执行严格的原子预检)
+   * @brief 注册值类型绑定（在写入前执行严格的原子预检）
    */
   bool RegisterBinding(const OperatorValueTypeBinding& binding);
   bool RegisterOutputAllocator(const std::string& name,

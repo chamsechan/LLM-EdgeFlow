@@ -30,7 +30,7 @@ class DeliveryGuard final : public ::testing::EmptyTestEventListener {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  // CTest discovery must see all compiled cases regardless of inherited flags.
+  // 无论继承了哪些标志，CTest 发现都必须看到全部已编译用例。
   if (GTEST_FLAG_GET(list_tests)) GTEST_FLAG_SET(filter, "*");
   auto* guard = new DeliveryGuard;
   ::testing::UnitTest::GetInstance()->listeners().Append(guard);

@@ -28,7 +28,8 @@ namespace {
 constexpr char kMagic[8] = {'E', 'F', 'B', 'P', 'E', '\r', '\n', '\0'};
 constexpr size_t kMaxFileBytes = size_t{1} << 30;
 
-// 头部是 40 个 u32：magic(2) 文件长度 CRC 五个参数 十个计数 十六个区段偏移。
+// 头部是 40 个 u32：magic（2 个）、文件长度、CRC、五个参数、十个计数、
+// 十六个区段偏移。
 constexpr size_t kHeaderWords = 40;
 constexpr size_t kHeaderBytes = kHeaderWords * 4;
 constexpr size_t kCrcStart = 16;  // CRC 覆盖 [16, 文件末尾)
@@ -201,9 +202,9 @@ void AppendCodePoint(std::string* out, uint32_t code_point) {
   }
 }
 
-// 读取一个码点。非法序列时返回 false，pos
-// 前进到最大有效前缀之后，出错的下一字节 留给下一次读取，与 Rust
-// String::from_utf8_lossy 的替换规则相同。
+// 读取一个码点。遇到非法序列时返回 false，pos 前进到最大有效前缀之后，
+// 出错的下一字节留给下一次读取，与 Rust String::from_utf8_lossy 的替换规则
+// 相同。
 bool ReadLossyCodePoint(std::string_view text, size_t* pos) noexcept {
   const unsigned char lead = static_cast<unsigned char>(text[(*pos)++]);
   if (lead < 0x80) return true;
@@ -399,9 +400,8 @@ class BpeTokenizer::Impl final {
 
    private:
     // 依次比较：优先级、左段码点数、右段码点数（都是越大越先）、合成 token 的
-    // ID（越小越先）、位置（越靠左越先）。rank
-    // 模式下相同排名意味着相同的合并规则，
-    // 后面几项必然相同，所以只有最后的“最左”起作用。
+    // ID（越小越先）、位置（越靠左越先）。rank 模式下相同排名意味着相同的
+    // 合并规则，后面几项必然相同，所以只有最后的“最左”起作用。
     static bool Higher(const Candidate& a, const Candidate& b) noexcept {
       if (a.priority != b.priority) return a.priority > b.priority;
       if (a.left_chars != b.left_chars) return a.left_chars > b.left_chars;
@@ -434,8 +434,8 @@ class BpeTokenizer::Impl final {
     std::memcpy(&value, scores_ + id, sizeof(value));
     return value;
   }
-  // 热路径上的函数不接受 string_view 参数：在带 AddressSanitizer
-  // 的构建里，对按值 传入的参数调用成员函数会使每次调用都很慢。
+  // 热路径上的函数不接受 string_view 参数：在带 AddressSanitizer 的构建里，
+  // 对按值传入的参数调用成员函数会使每次调用都很慢。
   int32_t Lookup(const char* bytes, size_t size) const noexcept;
   int32_t MatchAddedToken(const char* text, size_t size,
                           size_t* length) const noexcept;
@@ -837,8 +837,8 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
                                   std::vector<int32_t>* ids,
                                   const char** reason) const {
   if (word.empty()) return error::kOk;
-  // 符号数不超过字节数：先按字节数分配，填完后再收缩。逐个 push_back
-  // 的临时对象在 带 AddressSanitizer 的构建里很慢，所以这里直接按下标写入。
+  // 符号数不超过字节数：先按字节数分配，填完后再收缩。
+  // 在带 AddressSanitizer 的构建里逐个 push_back 临时对象很慢，因此按下标写入。
   std::vector<Symbol> symbols(word.size());
   size_t count = 0;
   const auto set_symbol = [&symbols](size_t index, size_t start, size_t size,

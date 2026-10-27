@@ -494,7 +494,7 @@ TEST_F(PipelineRuntimeTest,
   const bool second_completed = WaitFor({"second"}, true);
   Release({"first", "second"});
   execution.join();
-  // No fatal assertions occur while a task or the caller thread is blocked.
+  // 任务或调用线程阻塞期间不执行致命断言。
   ASSERT_TRUE(both_entered);
   ASSERT_TRUE(second_completed);
   EXPECT_EQ(code, -11);
@@ -532,7 +532,7 @@ TEST_F(PipelineRuntimeTest, FirstFailureWaitsForAnAlreadyActivePeer) {
   Release({"first", "second"});
   const int code = execution.get();
   pipeline.reset();
-  // Release and join precede all assertions, including failed handshakes.
+  // 释放和 join 都在所有断言之前完成，包括握手失败的情况。
   ASSERT_TRUE(both_entered);
   ASSERT_TRUE(first_completed);
   EXPECT_EQ(while_peer_blocked, std::future_status::timeout);
@@ -668,8 +668,7 @@ TEST_F(PipelineRuntimeTest,
       test_support::ScopedAllocationFailure fault(point);
       try {
         (void)pipeline.Execute(&context);
-      } catch (const std::bad_alloc&) { /* Before submission, allocation may
-                                           escape. */
+      } catch (const std::bad_alloc&) { /* 提交任务前的分配失败可以抛出。 */
       }
       injected = fault.Triggered();
     }

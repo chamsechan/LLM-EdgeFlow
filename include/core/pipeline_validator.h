@@ -21,8 +21,8 @@ struct ValidationDiagnostic {
   std::string port;
   std::vector<std::string> related_nodes;
   std::vector<std::string> suggestions;
-  // 校验确立的中性事实，含推断出的 item 形状。
-  // 工具可据此解释，无需重复 Validator 规则。
+  // 校验得出的中性信息（含推断出的 item 形状），供工具解释诊断，
+  // 无需重复 Validator 规则。
   nlohmann::json facts = nlohmann::json::object();
 
   nlohmann::json ToJson() const;
@@ -54,7 +54,7 @@ struct ValidatedModelPlan {
 struct ValidatedPipelinePlan {
   ParsedPipelineConfig config;
   std::vector<ValidatedModelPlan> models;
-  std::vector<IoPortDefinition> input_ports;  // 被引用的输入项输出。
+  std::vector<IoPortDefinition> input_ports;  // Pipeline 引用的 IO 输入端口。
   std::unordered_map<std::string, ValidatedNodePlan> node_plans;
   ValidationReport report;
 };
@@ -69,8 +69,7 @@ class PipelineValidator {
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root, const PipelineIoBoundary& io_boundary);
 
-  // Consumes the successful result of ParsePipelineConfig without reparsing
-  // JSON.
+  // 直接消费 ParsePipelineConfig 的成功结果，不重新解析 JSON。
   static ValidatedPipelinePlan ValidateParsedAndPlan(
       ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary);
 };
@@ -79,9 +78,9 @@ class PipelineValidator {
  * @brief 按 Schema Definition 校验用户配置对象并补齐默认值
  * @param schema 字段定义列表
  * @param input 原始用户传入的 JSON 配置
- * @param normalized 输出归一化后的新 JSON 配置 (注入默认值)
+ * @param normalized 输出归一化后的新 JSON 配置（注入默认值）
  * @param diagnostics 可选的诊断错误收集列表
- * @param base_pointer JSON Pointer 基础前缀 (如 "/models/0/params")
+ * @param base_pointer JSON Pointer 基础前缀（如 "/models/0/params"）
  * @return true 校验通过且成功归一化，false 校验失败
  */
 bool ValidateAndNormalizeConfig(

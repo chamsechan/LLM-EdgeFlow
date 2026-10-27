@@ -11,7 +11,7 @@
 namespace llm_edgeflow {
 
 // 在 Node 的会话生命周期内借用。Model 仍是显式的 Spec 依赖；
-// 此 facade 不能查找模型或访问请求值。
+// 此门面不能查找模型或访问请求值。
 class SessionResources {
  public:
   SessionResources() = default;

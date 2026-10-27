@@ -393,7 +393,7 @@ int Pipeline::Execute(AlgContext* req_ctx) {
     const auto& layer = node_layers_[layer_idx];
     if (layer.empty()) continue;
 
-    // 单节点层 或 顺序执行模式：直接主线程执行 (零线程切换开销)
+    // 单节点层或顺序执行模式：直接在调用线程执行，不切换线程。
     if (layer.size() == 1 || execution_mode_ == ExecutionMode::kSequential ||
         !thread_pool_) {
       for (size_t i = 0; i < layer.size(); ++i) {

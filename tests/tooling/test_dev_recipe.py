@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual recipe CLI prepares isolated artifacts and invokes native validation."""
+"""实际的 recipe CLI 准备隔离的产物并调用原生校验。"""
 
 import importlib.util
 import json
@@ -28,7 +28,7 @@ class RecipeConsumerTest(unittest.TestCase):
         self.root = Path(self.temporary.name).resolve()
         self.build = self.root / 'build'
         self.build.mkdir()
-        # Exact production scripts plus actual built binaries; no inferred Catalog.
+        # 使用原样的生产脚本和实际构建的二进制，不推断 Catalog。
         files = [
             'tools/dev_recipe.py', 'tools/scaffold_custom_node.py', 'tools/verify_selection.py',
             'demo/common/demo_profile.py', 'demo/common/profile_fields.json', 'demo/profiles.json',
@@ -53,7 +53,7 @@ class RecipeConsumerTest(unittest.TestCase):
                 shutil.copy2(library, self.build / library.name)
         self.tool = self.build / TOOL.name
         self.demo = self.build / DEMO.name
-        # The copied source-root metadata exercises tool_context's matching-root contract.
+        # 复制的源码根元数据用于验证 tool_context 的源码根匹配契约。
         (self.build / 'CMakeCache.txt').write_text(f'CMAKE_HOME_DIRECTORY:INTERNAL={self.root}\n')
         self.script = self.root / 'tools/dev_recipe.py'
         self.pipeline = self.root / 'configs/pipeline_recipe.json'
@@ -96,7 +96,7 @@ class RecipeConsumerTest(unittest.TestCase):
     def test_prompt_verification_uses_actual_native_plan_and_demo_labelled_effects(self):
         prepared = self.prepare()
         command = prepared['next_commands'][0]['argv']
-        # prompt-config's existing binaries require no nested compilation.
+        # prompt-config 已有的二进制不需要嵌套编译。
         process = subprocess.run([*command, '--json'], cwd=self.root,
                                  capture_output=True, text=True, timeout=90)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
@@ -121,7 +121,7 @@ class RecipeConsumerTest(unittest.TestCase):
         self.assertEqual(generated['inputs'], {'input': 'build_prompt.text'})
         parse = next(node for node in pipeline['pipeline'] if node['type'] == 'structured_json_parse')
         self.assertEqual(parse['inputs']['text'], 'consumer_llm.output')
-        # Compilation/execution of the exact emitted test is owned by scaffold fixtures.
+        # 生成测试的原样编译和执行由脚手架夹具负责。
         self.assertEqual(prepared['pending_steps'], ['verify'])
 
     def test_prepare_conflict_preserves_all_existing_artifacts_and_source(self):

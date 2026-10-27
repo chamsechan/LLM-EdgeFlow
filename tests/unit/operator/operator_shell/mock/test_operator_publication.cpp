@@ -94,7 +94,7 @@ TEST(OperatorPublicationTest,
     EXPECT_EQ(test.external[i].at("destination.publication"), nullptr);
     EXPECT_NE(test.staged.rows[i][0].value, nullptr);
   }
-  // Service fields may have changed; ownership has not been committed.
+  // 服务字段可能已被修改，但所有权尚未提交。
   test.staged.rows.clear();
   for (const auto &payload : test.payloads) EXPECT_TRUE(payload.expired());
 }

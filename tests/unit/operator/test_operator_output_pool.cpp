@@ -23,9 +23,8 @@ struct AcquireResult {
   void* block;
 };
 
-// A notification regression must fail a bounded check without leaving a joined
-// test thread blocked forever. The fallback DestroyBlocks also notifies
-// waiters.
+// 通知回归必须让有界检查失败，而不是让被 join 的测试线程永久阻塞。
+// 兜底的 DestroyBlocks 同样会通知等待者。
 bool FinishAcquirer(std::thread* worker, std::future<AcquireResult>* result,
                     const std::shared_ptr<OutputPoolState>& pool) {
   const bool ready =
@@ -36,7 +35,7 @@ bool FinishAcquirer(std::thread* worker, std::future<AcquireResult>* result,
   if (recovered)
     worker->join();
   else
-    worker->detach();  // The thread owns its promise and pool until it exits.
+    worker->detach();  // 线程在退出前持有自己的 promise 和池。
   return ready;
 }
 
@@ -342,7 +341,7 @@ TEST_F(OperatorOutputPoolTest,
   EXPECT_EQ(trace->root_live, 0);
   EXPECT_EQ(trace->nested_live, 0);
   EXPECT_EQ(trace->roots_destroyed, 1);
-  // The lease pointer is intentionally not dereferenced after pool destruction.
+  // 池销毁后有意不再解引用租约指针。
   lease.reset();
   EXPECT_EQ(trace->resets, 0);
   EXPECT_EQ(trace->roots_destroyed, 1);

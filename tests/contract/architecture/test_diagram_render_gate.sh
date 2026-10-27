@@ -29,7 +29,7 @@ expect_failure 'Missing or empty framework overview' run --check
 touch "$workspace/doc/assets/framework_overview.svg"
 expect_failure 'Missing or empty framework overview' run --check
 cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
-# A narrow Java transport stub proves rejected cache bytes never reach rendering.
+# 用最小的 Java 传输桩证明被拒绝的缓存字节不会进入渲染。
 cat > "$workspace/java-version-only" <<'JAVA'
 #!/usr/bin/env bash
 if [[ "${1:-}" == '-version' ]]; then exit 0; fi
@@ -42,7 +42,7 @@ expect_failure 'checksum mismatch' env LLM_EDGEFLOW_JAVA_BIN="$workspace/java-ve
   JAVA_TRACE="$workspace/java-trace" LLM_EDGEFLOW_TOOL_CACHE_DIR="$workspace/bad-cache" \
   LLM_EDGEFLOW_ARCH_DOC_ROOT="$workspace/doc" bash "$renderer" --check
 [[ ! -e "$workspace/java-trace" ]]
-# Positive and stale-provenance checks use the actual pinned renderer, not fake SVGs.
+# 正向检查和过期来源检查都使用实际固定版本的渲染器，而不是伪造的 SVG。
 run --check >"$workspace/output"
 cp "$workspace/doc/assets/architecture_class_diagram.svg" "$workspace/committed.svg"
 printf '\n\x27 source comment changed after asset generation\n' >> "$workspace/doc/architecture_classes.puml"
@@ -50,7 +50,7 @@ expect_failure 'SVG source provenance is stale' run --check
 cmp "$workspace/committed.svg" "$workspace/doc/assets/architecture_class_diagram.svg"
 run --generate >"$workspace/output"
 run --check >"$workspace/output"
-# Renderer process errors propagate and leave committed assets unchanged.
+# 渲染进程的错误会向上传递，已提交的资源保持不变。
 cp "$workspace/doc/assets/architecture_class_diagram.svg" "$workspace/committed.svg"
 if LLM_EDGEFLOW_JAVA_BIN="$workspace/java-version-only" JAVA_TRACE="$workspace/java-trace" \
     LLM_EDGEFLOW_TOOL_CACHE_DIR="$cache" LLM_EDGEFLOW_ARCH_DOC_ROOT="$workspace/doc" \

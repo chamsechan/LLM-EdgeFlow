@@ -58,7 +58,7 @@ NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
         "text_embedding: single-flight inference failed",
         error::kInferenceFailed);
   }
-  // 模型 facade 已校验缓存结果；PreservedOutput 在为本请求发布前
+  // 模型门面已校验缓存结果；PreservedOutput 在为本请求发布前
   // 会再次检查返回的副本。
   return NodeResult<EmbeddingBatch>::Success(*cached.value());
 }

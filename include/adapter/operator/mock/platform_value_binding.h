@@ -17,7 +17,7 @@ struct MockAnyTypeDescriptor {
 };
 
 /**
- * @brief 根据 type_id 查找 MockAny 元素类型描述 (白名单)
+ * @brief 根据 type_id 查找 MockAny 元素类型描述（白名单）
  */
 const MockAnyTypeDescriptor* FindMockAnyType(int32_t type_id) noexcept;
 
@@ -29,18 +29,18 @@ int ValidateMockInputText(const MockInput& request, size_t max_bytes,
                           const char* field_name, std::string* err) noexcept;
 
 /**
- * @brief 读取已通过 ValidateMockInputText 的文本 (借用请求内存)
+ * @brief 读取已通过 ValidateMockInputText 的文本（借用请求内存）
  */
 std::string_view MockInputText(const MockInput& request) noexcept;
 
 /**
- * @brief 校验 MockString 合法性 (带显式长度、上限与嵌入 NUL 检查)
+ * @brief 校验 MockString 合法性（带显式长度、上限与嵌入 NUL 检查）
  */
 int ValidateMockString(const MockString* str, size_t max_bytes,
                        const char* field_name, std::string* err) noexcept;
 
 /**
- * @brief 校验 MockAny 合法性 (受类型白名单与尺寸乘法方程校验)
+ * @brief 校验 MockAny 合法性（受类型白名单与尺寸乘法方程校验）
  */
 int ValidateMockAnyPayload(const MockAny* any, size_t max_any_bytes,
                            const char* field_name, std::string* err) noexcept;

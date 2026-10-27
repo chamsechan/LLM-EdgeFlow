@@ -120,8 +120,7 @@ TEST(WhisperCppBackendTest, SuppliedModelRunsThroughNeutralAudioProtocol) {
                                 options, &output, &diagnostic),
             0)
       << diagnostic;
-  // Silence is a runtime smoke input; it makes no claim about recognition
-  // accuracy.
+  // 静音只是运行时冒烟输入，不说明识别准确率。
   EXPECT_LE(output.size(), options.max_output_bytes);
   EXPECT_EQ(session->Transcribe(AudioPcmPayload({}, 16000), options, nullptr,
                                 &diagnostic),

@@ -63,8 +63,7 @@ TEST(PipelineCatalogTest, NativeSnapshotExportsTheRegisteredTypedSpec) {
       definition));
   auto snapshot = PipelineCatalog::Snapshot();
   ASSERT_NE(snapshot.FindNode("catalog_probe"), nullptr);
-  // Catalog JSON must retain this native snapshot after the live registry
-  // changes.
+  // 实时注册表变化后，Catalog JSON 仍须保留这份原生快照。
   test_support::RegistryTestAccess::ResetNodes();
   const auto catalog = PipelineCatalog::ToJson(snapshot);
   const auto expected = nlohmann::json::parse(R"json([

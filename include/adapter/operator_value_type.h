@@ -24,9 +24,9 @@ namespace llm_edgeflow {
 /**
  * @brief 宿主输入的安全上限
  *
- * 值类型在读取宿主内存前用这些上限检查指针与长度；默认值全部来自
- * input_limits 常量，Operator
- * 不提供配置项。测试和自定义值类型可传入更小的上限。
+ * 值类型在读取宿主内存前用这些上限检查指针与长度。默认值全部来自
+ * input_limits 常量，Operator 不提供配置项；测试和自定义值类型可传入更小的
+ * 上限。
  */
 struct InputLimits {
   size_t max_text_bytes = input_limits::kMaxTextBytes;
@@ -60,7 +60,7 @@ struct OperatorOutputLayoutDescriptor {
 };
 
 /**
- * @brief 移动语义清理动作 (无需 std::function 堆分配或控制块)
+ * @brief 移动语义清理动作（无需 std::function 堆分配或控制块）
  */
 struct CleanupAction {
   void* ptr = nullptr;
@@ -75,7 +75,7 @@ struct CleanupAction {
 };
 
 /**
- * @brief 由输出池持有所有权的外部结构块 (具备完整 RAII 自动回滚与类型安全清理)
+ * @brief 由输出池持有所有权的外部结构块（RAII：失败时回滚，按类型清理）
  */
 struct OwnedExternalBlock {
   void* raw_struct = nullptr;
@@ -225,7 +225,7 @@ void SetServiceTypeMember(OperatorValueTypeBinding* binding,
   }
 }
 
-// 将具体平台载体绑定到一种中立 Converter 值类型。
+// 将具体平台载体绑定到一种中性 Converter 值类型。
 template <typename Host, typename Value, typename Read>
 void SetInputValue(OperatorValueTypeBinding* binding, Read read) {
   static_assert(std::is_same_v<std::invoke_result_t<Read, const Host&>, Value>);
@@ -245,7 +245,7 @@ void SetOutputValue(OperatorValueTypeBinding* binding, Write write) {
   };
 }
 
-// 外部空值诊断和类型擦除保留在绑定边界。
+// 空指针诊断和类型擦除都在 binding 内完成，validate 只接收已转换的 T。
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
                                                Validate validate) {
@@ -265,8 +265,8 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
   return binding;
 }
 
-// 源码扩展注册，须在 Operator Init 前全部完成。具名分配器保留已注册的
-// 外层类型，同时自定义嵌套布局、参数归一化、字节计数和清理。
+// 供源码扩展注册，须在 Operator Init 之前全部完成。具名分配器沿用已注册的
+// 外层类型，并可自定义嵌套布局、参数归一化、字节计数和清理。
 bool RegisterOperatorValueType(const OperatorValueTypeBinding& binding);
 bool RegisterOperatorOutputAllocator(const std::string& name,
                                      const OperatorValueTypeBinding& binding);

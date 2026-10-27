@@ -14,7 +14,7 @@ namespace embedding_support {
  * 保证：
  * - 维度非空。
  * - 所有输入和输出必须是有限值。
- * - normalize == true 时，零范数向量失败 (无法归一化为单位方向)。
+ * - normalize == true 时，零范数向量失败（无法归一化为单位方向）。
  * - normalize == false 时，允许有限的零向量。
  * - 双精度累加避免有界 float 模型行溢出。
  */

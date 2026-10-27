@@ -1,4 +1,4 @@
-# PCRE2 智能缓存与预编译复用配置
+# PCRE2：复用已缓存的预编译库，缓存不可用时从源码构建。
 
 option(PCRE2_FORCE_REBUILD "Force rebuilding pcre2 even if cached in 3rdparty" OFF)
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)

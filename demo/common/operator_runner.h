@@ -22,8 +22,9 @@
 namespace alg_demo {
 
 /**
- * @brief 自动解析 model_root 和 relative cfg_file_name
- * (支持跨运行路径与父级查找)
+ * @brief 自动解析 model_root 和相对的 cfg_file_name
+ *
+ * 支持从不同运行目录启动，并向父级目录查找。
  */
 inline bool ResolveModelRootAndConfig(const std::string& conf_path,
                                       std::string* out_model_root,

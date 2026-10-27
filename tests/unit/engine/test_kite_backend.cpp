@@ -133,8 +133,7 @@ TEST(KiteBackendTest,
                 "Invalid run-config vision.mmproj");
   reject_config({{"vision", {{"mmproj", "missing-projector.gguf"}}}},
                 "projector file does not exist");
-  // No private SDK layout or success inference is simulated by these pre-load
-  // checks.
+  // 这些加载前检查既不模拟私有 SDK 布局，也不模拟推理成功。
 }
 #else
 TEST(KiteBackendTest,

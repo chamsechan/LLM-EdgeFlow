@@ -14,8 +14,8 @@ inline constexpr uint32_t kUnicodeNumber = 2;
 inline constexpr uint32_t kUnicodeSpace = 4;
 
 // 分词器文件中 Unicode 区段的只读视图。指针须按 4 字节对齐，所指内存在
-// UnicodeTables 存活期间保持有效。各表的行布局见
-// doc/dev_guide/bpe_tokenizer_format.md。
+// UnicodeTables 存活期间保持有效。
+// 各表的行布局见 doc/dev_guide/bpe_tokenizer_format.md。
 struct UnicodeSections {
   const uint32_t* properties = nullptr;  // (起, 止, 类别位)，按码点升序且不重叠
   size_t property_rows = 0;

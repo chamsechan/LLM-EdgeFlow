@@ -179,7 +179,7 @@ bool BertWordPieceTokenizer::BasicTokenize(const std::string& text,
     uint32_t cp = 0;
     size_t consumed = utf8::DecodeCodePoint(ptr + offset, len - offset, &cp);
     if (consumed == 0) {
-      // 严格 Fail-Closed：输入包含非法 UTF-8 字节序列时立即拒绝
+      // fail-closed：输入包含非法 UTF-8 字节序列时立即拒绝
       if (diagnostic) {
         *diagnostic =
             "Invalid UTF-8 byte sequence detected in input text at byte "

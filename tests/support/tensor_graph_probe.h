@@ -15,7 +15,7 @@
 
 namespace llm_edgeflow::test_support {
 
-// Model tests declare their own ports and policy; this only records execution.
+// Model 测试自行声明端口和策略；这里只记录执行情况。
 class TensorGraphProbe : public ITensorGraphSession {
  public:
   explicit TensorGraphProbe(std::string name) : backend(std::move(name)) {}

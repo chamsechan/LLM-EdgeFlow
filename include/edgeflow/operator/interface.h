@@ -41,7 +41,7 @@ inline const char* ComputePlatformToString(ComputePlatform platform) noexcept {
 }
 
 /**
- * @brief 辅助构造只读借用输入 shared_ptr (空 Deleter，不持有所有权)
+ * @brief 辅助构造只读借用输入 shared_ptr（空 Deleter，不持有所有权）
  */
 template <typename T>
 inline std::shared_ptr<void> MakeBorrowedOperatorInput(const T* ptr) {
@@ -59,9 +59,8 @@ EDGEFLOW_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
  */
 EDGEFLOW_API const char* GetOperatorLastError() noexcept;
 
-// Host keys are `<prefix>.<type>`; the host-generated prefix is nonempty,
-// dot-free and opaque to the runtime. Each type appears at most once per
-// direction.
+// 宿主 key 为 `<prefix>.<type>`；prefix 由宿主生成，非空、不含 '.'，
+// 运行时不解读其内容。同一方向内每种 type 至多出现一次。
 struct OperatorIoEntry {
   std::string type;
   std::string name;

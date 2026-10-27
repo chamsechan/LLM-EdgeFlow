@@ -21,7 +21,7 @@ namespace alg_demo {
 void ConfigureLogLevelFromEnvironment() noexcept;
 
 /**
- * @brief Demo 运行参数对象 (由命令行参数、Profile 配置与默认安全值合并而成)
+ * @brief Demo 运行参数对象（由命令行参数、Profile 配置与默认安全值合并而成）
  */
 struct DemoOptions {
   std::string profiles_file;             // 可选的部署专属 Profile 文档
@@ -30,11 +30,10 @@ struct DemoOptions {
   std::string dataset_path;              // 业务测试集文件路径
   std::string output_dir = "./results";  // 结果输出根目录
 
-  // 执行参数只能由 Profile JSON 配置 (或使用默认值)。
-  int batch_size = alg_demo::kDemoBatchSize;  // 最大批大小 (支持按批分块分发)
+  // 执行参数只能由 Profile JSON 配置（或使用默认值）。
+  int batch_size = alg_demo::kDemoBatchSize;  // 最大批大小（支持按批分块分发）
   int device_id = alg_demo::kDemoDeviceId;  // 设备 ID
-  std::string chip = alg_demo::kDemoChip;   // 计算平台芯片类型字符串
-                                            // (受严格白名单校验)
+  std::string chip = alg_demo::kDemoChip;  // 芯片类型（受白名单校验）
   uint32_t depth_num = alg_demo::kDemoDepth;  // 输出结构体预分配深度
 
   std::optional<std::string> control_file;  // 运行时 Control JSON 文件路径
@@ -45,8 +44,7 @@ struct DemoOptions {
   bool list_only = false;              // 是否仅列出可用载体和 Profile
   bool show_help = false;              // 是否显示帮助信息
 
-  // 显式跟踪 CLI 是否显式提供了特定参数 (解决 CLI 默认值无法可靠覆盖 Profile
-  // 问题)
+  // 记录 CLI 是否显式提供了各参数，使 CLI 默认值不会覆盖 Profile 中的值。
   bool has_profile = false;
   bool has_config_path = false;
   bool has_dataset_path = false;
@@ -56,10 +54,10 @@ struct DemoOptions {
 };
 
 /**
- * @brief 解析芯片计算平台字符串为强类型 ComputePlatform (严格白名单校验)
- * @param chip_str 芯片字符串 (支持大小写无关)
+ * @brief 解析芯片计算平台字符串为强类型 ComputePlatform（严格白名单校验）
+ * @param chip_str 芯片字符串（支持大小写无关）
  * @param out_type 输出 ComputePlatform
- * @return true 成功, false 字符串不在白名单内
+ * @return true 成功，false 字符串不在白名单内
  */
 bool ParseComputePlatform(
     const std::string& chip_str,
@@ -71,18 +69,18 @@ bool ParseComputePlatform(
  * @param argv 命令行参数数组
  * @param out_options 解析输出选项
  * @param error_msg 错误输出信息
- * @return 0 成功/帮助, 非 0 错误退出码 (2: CLI 参数错误)
+ * @return 0 成功/帮助，非 0 错误退出码（2：CLI 参数错误）
  */
 int ParseCommandLine(int argc, char* argv[], DemoOptions* out_options,
                      std::string* error_msg);
 
 /**
- * @brief 解析并严格校验 profiles.json 文档 (校验 profiles 结构与所有字段)
- * @param profiles_path profiles.json 路径 (支持相对或绝对路径，为空默认使用
- * demo/profiles.json)
+ * @brief 解析并严格校验 profiles.json 文档（校验 profiles 结构与所有字段）
+ * @param profiles_path profiles.json 路径，支持相对或绝对路径；为空时使用
+ * demo/profiles.json
  * @param out_root 输出解析并校验通过的 JSON 对象
  * @param error_msg 错误输出信息
- * @return 0 成功, 非 0 错误码 (3: 格式或配置错误)
+ * @return 0 成功，非 0 错误码（3：格式或配置错误）
  */
 int LoadAndValidateProfilesDocument(const std::string& profiles_path,
                                     nlohmann::json* out_root,
@@ -98,12 +96,12 @@ int MergeProfileOptions(const nlohmann::json& root,
 
 /**
  * @brief 从 demo/profiles.json 读取并与 CLI 参数进行合并
- *        执行参数仅从 Profile 读取；其余参数优先级: CLI > Profile > 默认值
+ *        执行参数仅从 Profile 读取；其余参数优先级：CLI > Profile > 默认值
  * @param profiles_path profiles.json 路径
  * @param cli_options 命令行选项
  * @param out_options 合并后的最终选项
  * @param error_msg 错误输出信息
- * @return 0 成功, 非 0 错误码 (3: Profile 解析/校验错误)
+ * @return 0 成功，非 0 错误码（3：Profile 解析/校验错误）
  */
 int LoadAndMergeProfiles(const std::string& profiles_path,
                          const DemoOptions& cli_options,

@@ -23,8 +23,8 @@ struct BlackboardTypeTraits {
 };
 
 /**
- * @brief 从 BlackboardTypeTraits<T> 构造类型化 Blackboard
- * Key，未知类型编译期失败
+ * @brief 从 BlackboardTypeTraits<T> 构造类型化 Blackboard Key；
+ * 未知类型在编译期失败
  */
 template <typename T>
 constexpr BlackboardKey<T> MakeBlackboardKey(const char* name) {

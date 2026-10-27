@@ -25,7 +25,7 @@ std::string ToLower(std::string str) {
 }
 
 /**
- * @brief 严格整数解析函数，拒绝包含尾随非法字符的字符串 (P2-1)
+ * @brief 严格解析整数，拒绝带有尾随非法字符的字符串
  */
 bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
   if (str.empty()) return false;
@@ -33,7 +33,7 @@ bool ParseStrictInt64(const std::string& str, int64_t* out_val) {
   try {
     int64_t val = std::stoll(str, &idx);
     if (idx != str.size()) {
-      return false;  // 存在尾随非法字符 (如 "1abc")
+      return false;  // 存在尾随非法字符（如 "1abc"）
     }
     if (out_val) *out_val = val;
     return true;
@@ -225,7 +225,7 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
 
   const auto& profiles = root["profiles"];
 
-  // 严格 Schema 校验所有 Profiles (逐字段类型与数值区间安全检验)
+  // 严格 Schema 校验所有 Profiles（逐字段类型与数值区间安全检验）
   for (const auto& [name, p] : profiles.items()) {
     if (name.empty()) {
       if (error_msg)

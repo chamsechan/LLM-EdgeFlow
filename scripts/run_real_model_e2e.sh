@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # scripts/run_real_model_e2e.sh
-# 独立物理真实模型端到端压测入口 (与日常 CTest 隔离)
+# 真实模型端到端测试入口（与日常 CTest 隔离）
 # ==============================================================================
 
 set -euo pipefail
@@ -46,7 +46,7 @@ else
   "${PROJECT_ROOT}/scripts/fetch_real_test_models.sh" --gguf-only
 fi
 
-# 2. 编译独立物理测试套件
+# 2. 编译独立的真实模型测试套件
 echo ">>> 正在编译 test_real_models_e2e..."
 "${PROJECT_ROOT}/scripts/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" minimal "${CMAKE_BACKEND_ARGS[@]}" \
   -DENABLE_REAL_MODEL_TESTS=ON \
@@ -54,7 +54,7 @@ echo ">>> 正在编译 test_real_models_e2e..."
 cmake --build "${BUILD_DIR}" --target test_real_models_e2e alg_demo \
   -j"${LLM_EDGEFLOW_JOBS:-4}"
 
-# 3. 运行物理真实模型端到端测试
+# 3. 运行真实模型端到端测试
 echo "=================================================================="
 echo ">>> 执行真实模型物理测试 (Google Test)..."
 echo "=================================================================="

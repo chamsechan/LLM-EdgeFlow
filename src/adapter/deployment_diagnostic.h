@@ -11,8 +11,7 @@ namespace llm_edgeflow {
 /**
  * @brief 轻量级部署诊断载体
  *
- * 用于在 Integration 内部及工具调用面跨函数传递结构化错误 (code, path,
- * message).
+ * 在 Integration 内部及工具调用之间传递结构化错误（code、path、message）。
  */
 struct DeploymentDiagnostic {
   int code = error::kOk;  // 框架统一错误码

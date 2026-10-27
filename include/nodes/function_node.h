@@ -346,7 +346,7 @@ inline InputBindingHolder<InputsT> Optional(std::string name,
 }
 
 // 可选连接：请求中缺失的值由算法处理
-// (例如模板缺失变量策略或按条件使用的上下文)。
+// （例如模板缺失变量策略或按条件使用的上下文）。
 template <typename InputsT, typename BatchT>
 inline InputBindingHolder<InputsT> OptionalValue(
     std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Actual Studio HTTP, local-file transactions and frontend consumers."""
+"""实际的 Studio HTTP、本地文件事务和前端使用方。"""
 
 import copy
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -308,7 +308,7 @@ class StudioHttpContractTest(unittest.TestCase):
                     try:
                         self.assertTrue(entered.wait(5))
                         second = pool.submit(submit, "second")
-                        # Give the competing HTTP request time to reach the held commit.
+                        # 给竞争的 HTTP 请求留出时间，使其到达被挂起的提交。
                         try:
                             second.result(timeout=1)
                         except FutureTimeout:

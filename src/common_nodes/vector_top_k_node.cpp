@@ -54,7 +54,7 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
           error::kInvalidInput);
     }
   }
-  // 索引候选文本 (根据 req_id 和 sub_id)
+  // 索引候选文本（根据 req_id 和 sub_id）
   std::unordered_map<uint64_t, std::string> text_map;
   for (const auto& ct : *candidate_texts) {
     uint64_t key = (static_cast<uint64_t>(ct.req_id) << 32) | ct.sub_id;

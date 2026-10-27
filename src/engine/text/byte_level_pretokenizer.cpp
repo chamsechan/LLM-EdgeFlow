@@ -23,9 +23,9 @@ bool SplitByteLevelQwen2(const UnicodeTables& tables, std::string_view text,
   std::vector<uint32_t> chars;
   std::vector<uint32_t> flags;
   std::vector<size_t> offsets;
-  // 码点数不超过字节数：先按字节数分配，填完后收缩。按下标写入，避免在逐字符的
-  // 循环里对向量 push_back 局部变量（带 AddressSanitizer
-  // 的构建里慢两个数量级）。
+  // 码点数不超过字节数：先按字节数分配，填完后收缩。按下标写入，避免在逐字符
+  // 的循环里对向量 push_back 局部变量（在带 AddressSanitizer 的构建里会慢
+  // 两个数量级）。
   chars.resize(text.size());
   flags.resize(text.size());
   offsets.resize(text.size() + 1);

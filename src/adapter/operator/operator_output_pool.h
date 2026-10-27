@@ -26,7 +26,7 @@ bool ComputeOutputPoolPayloadBytes(const OperatorValueTypeBinding& binding,
                                    std::string* err) noexcept;
 
 /**
- * @brief 输出池自定义 Deleter (仅捕获 weak_ptr，生命周期安全)
+ * @brief 输出池自定义 Deleter（仅捕获 weak_ptr，生命周期安全）
  */
 struct OutputPoolDeleter {
   std::weak_ptr<OutputPoolState> weak_pool;
@@ -36,12 +36,14 @@ struct OutputPoolDeleter {
 };
 
 /**
- * @brief 块状态枚举 (用于状态机账本严格防下溢与防重复归还)
+ * @brief 块状态枚举（用于状态机账本严格防下溢与防重复归还）
  */
 enum class BlockState { kFree, kCheckedOut };
 
 /**
- * @brief 单个逻辑输出槽位的对象预分配池状态机 (固定容量零分配无下溢)
+ * @brief 单个逻辑输出槽位的预分配对象池状态机
+ *
+ * 容量固定；归还时不分配内存，状态账本防止下溢和重复归还。
  */
 class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  public:
@@ -54,13 +56,14 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
   ~OutputPoolState();
 
   /**
-   * @brief 从空闲队列检出一个块 (池为空时条件变量阻塞等待)
+   * @brief 从空闲队列检出一个块（池为空时条件变量阻塞等待）
    */
   int Acquire(void** out_block);
 
   /**
-   * @brief 将已检出的块重置并归还池中 (校验归属与状态账本，noexcept
-   * 且零内存分配)
+   * @brief 重置已检出的块并归还池中
+   *
+   * 校验块的归属与状态账本；noexcept，不分配内存。
    */
   void ReturnBlock(void* block) noexcept;
 
@@ -109,7 +112,7 @@ class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
 };
 
 /**
- * @brief Process 执行期局部检出租约守卫 (RAII 回滚保护与单块状态转移)
+ * @brief Process 执行期局部检出租约守卫（RAII 回滚保护与单块状态转移）
  */
 class ScopedOutputLeaseGuard {
  public:

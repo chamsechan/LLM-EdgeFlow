@@ -26,7 +26,7 @@ TEST(SessionResourcesTest,
     auto initiated = all_started.get_future();
     auto factory = [&] {
       if (++calls == 1) entered.set_value();
-      // A different resource may be constructed while this factory is active.
+      // 本工厂执行期间可以构造另一个资源。
       auto other =
           session.GetOrCreateResource(SessionResourceKey<int>("revision"),
                                       [] { return std::make_shared<int>(9); });
@@ -127,8 +127,7 @@ TEST(SessionResourcesTest, ConcurrentFailureIsNotCachedAndCanBeRetried) {
   std::atomic<int> calls{0}, callers{0};
   std::promise<void> all_started;
   auto initiated = all_started.get_future();
-  // Keep the injected exception alive until every waiter has finished reading
-  // it.
+  // 让注入的异常一直存活，直到所有等待者都读取完毕。
   const auto injected =
       std::make_exception_ptr(std::runtime_error("index unavailable"));
   auto factory = [&]() -> std::shared_ptr<int> {
@@ -160,9 +159,8 @@ TEST(SessionResourcesTest, ConcurrentFailureIsNotCachedAndCanBeRetried) {
   for (auto& result : results) EXPECT_EQ(result.get(), "index unavailable");
   EXPECT_TRUE(launched);
   EXPECT_TRUE(blocked);
-  // A caller may be descheduled before entering GetOrCreateResource and then
-  // start another failed flight after release. Count the explicit retry from
-  // the completed failures, without depending on internal flight membership.
+  // 调用方可能在进入 GetOrCreateResource 前被挂起，并在释放后发起另一次
+  // 失败的 flight。按已完成的失败计数显式重试，不依赖内部 flight 成员关系。
   const int failed_calls = calls;
   EXPECT_GE(failed_calls, 1);
   EXPECT_EQ(session.GetResource(key), nullptr);

@@ -79,8 +79,7 @@ TEST(ModelExecutionRegistryTest, DefinitionsAreIndependentSortedSnapshots) {
 
 TEST(ModelExecutionRegistryTest,
      InvalidDeclarationsNeverInstallAndLeaveStickyErrors) {
-  // Each invalid registration is isolated because conflicts intentionally
-  // persist.
+  // 冲突会被有意保留，因此每个非法注册都单独隔离执行。
   for (int defect = 0; defect < 9; ++defect) {
     SCOPED_TRACE(defect);
     EXPECT_EXIT(

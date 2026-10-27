@@ -26,7 +26,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    // 在创建 Provider/加载模型产生副作用之前完成静态协议兼容性校验。
+    // 在创建提供者、加载模型产生副作用之前完成静态协议兼容性校验。
     const auto& declared_protocols = backend_def_opt->supported_protocols;
     if (std::find(declared_protocols.begin(), declared_protocols.end(),
                   model_def_opt->required_protocol) ==
@@ -67,7 +67,7 @@ std::shared_ptr<IModel> ModelRuntimeFactory::Create(
       return nullptr;
     }
 
-    // 2. 创建后端工厂 Provider
+    // 2. 创建 Backend 提供者
     auto backend =
         BackendRegistry::Instance().Create(spec.backend_type, diagnostic);
     if (!backend) {

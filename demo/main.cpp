@@ -138,7 +138,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  // 2. 初始化 Operator 全局环境 (RAII 自动管理 Init / DeInit)
+  // 2. 初始化 Operator 全局环境（RAII 自动管理 Init / DeInit）
   OperatorGlobalGuard global_guard;
   if (!global_guard.initialized) {
     std::cerr << "[Main ERROR] Global Operator Init failed: "
@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
     return 5;
   }
 
-  // 3. 判断是否为 Suite 批量运行模式 (显式 --suite 或无参数默认 smoke)
+  // 3. 判断是否为 Suite 批量运行模式（显式 --suite 或无参数默认 smoke）
   if (cli_options.has_suite) {
     return RunSuite(cli_options.suite, cli_options);
   }
@@ -154,7 +154,7 @@ int main(int argc, char* argv[]) {
     return RunSuite("smoke", cli_options);
   }
 
-  // 4. 合并 Profile 与命令行配置 (单 Profile / 单业务模式)
+  // 4. 合并 Profile 与命令行配置（单 Profile / 单业务模式）
   DemoOptions options;
   std::string merge_err;
   int merge_ret = LoadAndMergeProfiles(cli_options.profiles_file, cli_options,

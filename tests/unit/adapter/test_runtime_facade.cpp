@@ -51,8 +51,8 @@ struct Trace {
   void PauseIfRequested() {
     std::unique_lock<std::mutex> lock(mutex);
     if (!pause) return;
-    // Only the first operation pauses; an unserialized second operation must
-    // be able to finish and fail the blocking assertion.
+    // 只有第一个操作会暂停；若未串行化，第二个操作就能完成并使阻塞断言
+    // 失败。
     pause = false;
     entered = true;
     cv.notify_all();
@@ -610,8 +610,8 @@ TEST_F(RuntimeFacadeTest,
       AcquireRuntimeOutputBlocks(output, {pool}, &guard, &acquired, &error), 0);
   ASSERT_EQ(acquired.size(), 2U);
   EXPECT_EQ(pool->CheckedOutCount(), 2U);
-  // Each Untrack removes one strong guard owner. Container staging leaves this
-  // count unchanged, identifying the exact shared_ptr allocation semantically.
+  // 每次 Untrack 移除一个强引用守卫持有者。容器暂存不改变该计数，由此在
+  // 语义上确认是同一次 shared_ptr 分配。
   const long second_control_block_count = pool.use_count() - 2;
   bool threw = false;
   bool triggered = false;

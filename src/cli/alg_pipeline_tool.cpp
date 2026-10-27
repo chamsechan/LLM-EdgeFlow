@@ -252,7 +252,7 @@ Json ResolveConf(const std::string& file, const std::string& root,
     if (!backend->params.Parse(model.backend_params, &backend_values, &error))
       return ToolError(error::kInvalidCombination, error,
                        path + "/backend/params");
-    // Show prepared values, including defaults that depend on other fields.
+    // 显示准备后的值，包括依赖其他字段的默认值。
     item["params"] = model_values->Effective();
     item["backend"]["params"] = backend_values->Effective();
     AddParameterFiles(&files, item["params"], definition->params.Fields(),

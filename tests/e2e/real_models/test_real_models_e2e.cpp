@@ -123,8 +123,7 @@ TEST_F(RealModelExecutionTest,
   ASSERT_TRUE(response.contains("translated"));
   ASSERT_TRUE(response["translated"].is_string());
   EXPECT_FALSE(response["translated"].get<std::string>().empty());
-  // This proves physical execution and response transport, not translation
-  // quality.
+  // 这里只证明实际执行和响应传输，不评价翻译质量。
   outputs.clear();
   EXPECT_EQ(instance.Close(), 0) << api::GetOperatorLastError();
 }

@@ -24,7 +24,7 @@ std::string Trim(const std::string& s);
  * @param file_path 文件路径
  * @param out_lines 输出行列表
  * @param error_msg 错误输出信息
- * @return true 成功, false 失败 (文件无法打开或不存在)
+ * @return true 成功，false 失败（文件无法打开或不存在）
  */
 bool ReadLinesFromFile(const std::string& file_path,
                        std::vector<std::string>* out_lines,
@@ -35,7 +35,7 @@ bool ReadLinesFromFile(const std::string& file_path,
  * @param file_path 文件路径
  * @param out_sections 输出标签段落字典
  * @param error_msg 错误输出信息
- * @return true 成功, false 失败
+ * @return true 成功，false 失败
  */
 bool ParseTagSections(
     const std::string& file_path,
@@ -43,11 +43,11 @@ bool ParseTagSections(
     std::string* error_msg = nullptr);
 
 /**
- * @brief 读取完整文本文件内容 (如 Control JSON 文件)
+ * @brief 读取完整文本文件内容（如 Control JSON 文件）
  * @param file_path 文件路径
  * @param out_content 输出文件字符串
  * @param error_msg 错误输出信息
- * @return true 成功, false 失败
+ * @return true 成功，false 失败
  */
 bool ReadTextFile(const std::string& file_path, std::string* out_content,
                   std::string* error_msg = nullptr);

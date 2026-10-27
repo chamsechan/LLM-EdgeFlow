@@ -76,7 +76,7 @@ def pipeline_io(pipeline):
 
 
 def build_run_conf(pipeline, outputs, pipe_path):
-    """Apply explicit output parameters without changing resource paths."""
+    """应用显式给出的输出参数，不改变资源路径。"""
     selected = pipeline_io(pipeline)[1]
     for output in outputs:
         matches = [entry for entry in selected
@@ -269,7 +269,7 @@ def evaluate(pipeline, selection, tool, pipeline_dir, spec_path, conf_path, demo
     effect_output(pipeline, spec)
     pipeline_dir = Path(pipeline_dir).resolve()
     execution_pipeline = copy.deepcopy(pipeline)
-    # The temporary documents share the original directory so relative resources stay valid.
+    # 临时文档与原文档位于同一目录，相对资源路径保持有效。
     with tempfile.TemporaryDirectory(prefix="edgeflow-selection-results-") as directory, \
             tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", prefix=".selection-",
                                         suffix=".json", dir=pipeline_dir) as temporary_pipeline, \

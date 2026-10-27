@@ -197,7 +197,7 @@ bool IoConverterRegistry::Audit(std::vector<std::string>* out_errors) const {
           it->default_value > capacity.max_capacity)
         fail("Missing valid integer size default: " + name);
     }
-    // Layout parameters are normalized once per registration, before Create.
+    // 布局参数在每个注册上只归一化一次，且在 Create 之前完成。
     bool cached;
     {
       std::lock_guard<std::mutex> lock(mutex_);

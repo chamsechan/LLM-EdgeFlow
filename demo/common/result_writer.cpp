@@ -56,7 +56,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
   int run_failed_count = 0;
   double run_latencies_sum = 0.0;
 
-  // 1. 写入样本至 results.jsonl (含错误样本记录)
+  // 1. 写入样本至 results.jsonl（含错误样本记录）
   {
     std::ofstream ofs(target_jsonl, open_mode);
     if (!ofs.is_open()) {
@@ -104,8 +104,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
     }
   }
 
-  // 3. 计算统计摘要口径 (在 --append 模式下精确从完整 results.jsonl
-  // 扫描累计口径)
+  // 3. 计算统计摘要（--append 模式下从完整的 results.jsonl 重新扫描累计值）
   int cum_total_samples = 0;
   int cum_success_count = 0;
   int cum_failed_count = 0;
@@ -138,7 +137,7 @@ int ResultWriter::WriteResults(const std::vector<DemoSampleResult>& results,
         (total_duration_ms > 0.0) ? total_duration_ms : run_latencies_sum;
   }
 
-  // 4. 写入 summary.json (统一使用 .tmp 原子写入替换)
+  // 4. 写入 summary.json（统一使用 .tmp 原子写入替换）
   {
     std::ofstream ofs_sum(tmp_summary, std::ios::out | std::ios::trunc);
     if (!ofs_sum.is_open()) {

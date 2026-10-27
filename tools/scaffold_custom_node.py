@@ -245,7 +245,7 @@ def render_standalone_test(name, in_port, out_port, capability=None, control_id=
     in_name, in_type, _, _ = in_port
     out_name, out_type, _, _ = out_port
     input_payload = SAMPLE_INPUTS.get(in_type, f"{payload_type(in_type)}{{}}")
-    payload_checks = SAMPLE_CHECKS.get(out_type, "// Add domain payload assertions for this custom batch type.")
+    payload_checks = SAMPLE_CHECKS.get(out_type, "// 在这里补充该自定义批类型的领域载荷断言。")
     setup = ""
     params = "nlohmann::json::object()"
     support = ""
@@ -368,7 +368,7 @@ class ChangePlan:
 
     @staticmethod
     def _restore(displaced, path):
-        # link() 遇到已存在的目标 (含符号链接) 会原子地拒绝。
+        # link() 遇到已存在的目标（含符号链接）会原子地拒绝。
         try:
             os.link(displaced, path, follow_symlinks=False)
         except FileExistsError:

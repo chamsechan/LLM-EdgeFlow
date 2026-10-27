@@ -96,7 +96,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
     return false;
   }
 
-  // 2. 根字段白名单: 必须有且仅有 pipe_path
+  // 根字段白名单：有且仅有 pipe_path
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (it.key() != "pipe_path") {
       std::string escaped_key = EscapeJsonPointer(it.key());
@@ -119,8 +119,7 @@ bool DeploymentIoConfig::Parse(const nlohmann::json& root,
 
   out_config->pipe_path = root["pipe_path"].get<std::string>();
 
-  // 3. 解析 pipe_path 相对
-  // config_dir，严格限制在配置根目录下，拒绝任何逃逸与搜索回退
+  // pipe_path 相对 config_dir 解析，限制在配置根目录内，拒绝逃逸和搜索回退。
   fs::path base_dir = fs::absolute(fs::path(config_dir));
   fs::path raw_pipe = fs::path(out_config->pipe_path);
   fs::path full_pipe =

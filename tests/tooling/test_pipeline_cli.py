@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public CLI status, JSON protocol, editing and serialized artifacts."""
+"""公开 CLI 的状态、JSON 协议、编辑与序列化产物。"""
 
 import argparse
 import copy
