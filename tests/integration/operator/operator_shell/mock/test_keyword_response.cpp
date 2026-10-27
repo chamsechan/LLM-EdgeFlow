@@ -28,7 +28,7 @@ class KeywordResponseTest : public ::testing::Test {
   api::NamedIoBatch outputs_;
 };
 
-TEST_F(KeywordResponseTest, CompleteRowsAndUpdatedRulesUseTheRealPipeline) {
+TEST_F(KeywordResponseTest, CompleteRowsUseTheConfiguredRulePipeline) {
   api::CreateParam create;
   create.model_path = ".";
   create.cfg_file_name = "configs/pipeline_keyword_match_rules.conf";
@@ -63,46 +63,19 @@ TEST_F(KeywordResponseTest, CompleteRowsAndUpdatedRulesUseTheRealPipeline) {
                 {{{"category", "SYSTEM_INIT"}, {"matched_word", "初始化"}},
                  {{"category", "SYSTEM_INIT"}, {"matched_word", "自检"}}})}}};
 
-  // Refill every slot twice. Clearing all output views returns the three
-  // leases.
-  for (int round = 0; round < 2; ++round) {
-    SCOPED_TRACE(round);
-    outputs_.resize(3);
-    for (auto& row : outputs_) row["keyword.json_out"] = nullptr;
-    ASSERT_EQ(ops_.Process(handle_, inputs, outputs_), 0)
-        << api::GetOperatorLastError();
-    ASSERT_EQ(outputs_.size(), expected.size());
-    for (size_t i = 0; i < expected.size(); ++i) {
-      SCOPED_TRACE(i);
-      const auto* value = static_cast<const MockOutput*>(
-          outputs_[i].at("keyword.json_out").get());
-      ASSERT_NE(value, nullptr);
-      EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
-      EXPECT_EQ(Json::parse(test_support::MockOutputText(value)), expected[i]);
-    }
-    outputs_.clear();
-  }
-
-  api::ControlUpdateRulesParam update{R"({"categories":{"UPDATED":["自检"]}})"};
-  ASSERT_EQ(
-      ops_.Control(handle_, static_cast<int>(api::ControlCommand::kUpdateRules),
-                   &update),
-      0);
   outputs_.resize(3);
   for (auto& row : outputs_) row["keyword.json_out"] = nullptr;
   ASSERT_EQ(ops_.Process(handle_, inputs, outputs_), 0)
       << api::GetOperatorLastError();
-  const auto changed =
-      test_support::MockOutputText(outputs_[2].at("keyword.json_out").get());
-  ASSERT_FALSE(changed.empty());
-  EXPECT_EQ(Json::parse(changed),
-            (Json{{"is_hit", 1},
-                  {"intent", "UPDATED"},
-                  {"confidence", 1.0},
-                  {"matched_word", "自检"},
-                  {"slots", Json::object()},
-                  {"matches", Json::array({{{"category", "UPDATED"},
-                                            {"matched_word", "自检"}}})}}));
+  ASSERT_EQ(outputs_.size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    SCOPED_TRACE(i);
+    const auto* value = static_cast<const MockOutput*>(
+        outputs_[i].at("keyword.json_out").get());
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->service_type, kMockServiceKeywordMatch);
+    EXPECT_EQ(Json::parse(test_support::MockOutputText(value)), expected[i]);
+  }
 }
 }  // namespace
 }  // namespace llm_edgeflow

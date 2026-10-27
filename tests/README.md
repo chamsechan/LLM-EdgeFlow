@@ -43,9 +43,9 @@ cmake --build build --target edgeflow_test_nodes_runner -j4
 ```
 
 四个 runner 的源码目录在 `RuntimeTests.cmake` 中定义。GoogleTest 从编译出的用例生成 CTest
-入口，包括脚手架生成的测试。新测试套件无需手动注册名称。`contract/architecture/test_test_labels_contract.py`
-把实际用例与 CTest 过滤器对照，拒绝空匹配、漏执行、重复执行及不明确的 tier，
-同时拒绝禁用的 CTest 条目和仅列举 GoogleTest 用例的命令。
+入口，包括脚手架生成的测试。新测试套件无需手动注册名称，每个用例恰好一个入口。
+`contract/architecture/test_test_labels_contract.py` 检查 CTest 元数据，拒绝不明确的 tier、
+禁用的条目、仅列举 GoogleTest 用例的命令，以及不以返回码 77 表示跳过的 GoogleTest 入口。
 常规 `test_*.cpp` 和 `dev_support/` 所属目录中的 `.cpp` 递归收集，增删后在下次构建自动更新。
 独立 registry/SDK 目标保持进程和公开依赖隔离；生成源码和可选 E2E 仍显式声明。
 

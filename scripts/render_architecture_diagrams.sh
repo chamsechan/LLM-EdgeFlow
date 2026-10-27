@@ -20,10 +20,17 @@ CLASS_SOURCE="${DOC_ROOT}/architecture_classes.puml"
 FLOW_SOURCE="${DOC_ROOT}/architecture_flow.puml"
 CLASS_ASSET="${DOC_ROOT}/assets/architecture_class_diagram.svg"
 FLOW_ASSET="${DOC_ROOT}/assets/architecture_flow.svg"
+OVERVIEW_ASSET="${DOC_ROOT}/assets/framework_overview.svg"
 
 echo "================================================================"
 echo " [Architecture Diagram Renderer & Gate] Mode: ${MODE}"
 echo "================================================================"
+
+# The overview is maintained separately from the generated PlantUML diagrams.
+if [[ ! -s "${OVERVIEW_ASSET}" ]]; then
+  echo "❌ Missing or empty framework overview: ${OVERVIEW_ASSET}"
+  exit 1
+fi
 
 resolve_java() {
   local candidate
