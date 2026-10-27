@@ -1,7 +1,7 @@
 #pragma once
 
-// Framework-owned error codes. Zero is success; every failure has one meaning.
-// Platform return values are translated only at the Operator boundary.
+// 框架自有错误码。0 表示成功，每个失败码只有一种含义。
+// 平台返回值只在 Operator 边界转换。
 #define LLM_EDGEFLOW_ERROR_CODES(X)                                     \
   X(kOk, 0, "OK")                                                       \
   X(kInvalidArgument, -1001, "INVALID_ARGUMENT")                        \

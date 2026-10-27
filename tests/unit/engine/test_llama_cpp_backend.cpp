@@ -80,7 +80,7 @@ TEST(LlamaCppBackendTest, StopWordLookupUsesEarliestMatchRegardlessOfOrder) {
 }
 
 TEST(LlamaCppBackendTest, GeneratorStopsOnWordSpanningDecodedPieces) {
-  // The decoder emits "prefix" on every step; "fixpre" spans two steps.
+  // 解码器每一步都输出 "prefix"；"fixpre" 跨越两步。
   FailingDecoder decoder(-1);
   GenerateOptions options;
   options.max_tokens = 3;
@@ -149,8 +149,7 @@ TEST(LlamaCppBackendTest,
   EXPECT_EQ(provider->Load(spec, &diagnostic), nullptr);
   EXPECT_NE(diagnostic.find("not a regular file"), std::string::npos);
   spec.model_file = invalid.File();
-  // Both attempts enter the actual vendor loader; neither failure may leave a
-  // session.
+  // 两次尝试都进入实际的厂商加载器；任何一次失败都不得留下 Session。
   for (int attempt = 0; attempt < 2; ++attempt) {
     diagnostic.clear();
     EXPECT_EQ(provider->Load(spec, &diagnostic), nullptr);

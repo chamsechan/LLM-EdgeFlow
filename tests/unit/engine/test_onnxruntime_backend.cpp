@@ -84,7 +84,7 @@ TEST(OnnxRuntimeBackendTest,
   EXPECT_EQ(retained.desc.shape, (std::vector<int64_t>{2, 1}));
   const auto* values = GetTensorData<float>(retained);
   ASSERT_NE(values, nullptr);
-  // Row 0: candidate 4 * .01 + all 6 * .001; row 1: 12 * .01 + 15 * .001.
+  // 第 0 行：候选 4 * .01 + 全部 6 * .001；第 1 行：12 * .01 + 15 * .001。
   EXPECT_NEAR(values[0], 0.046f, 1e-7f);
   EXPECT_NEAR(values[1], 0.135f, 1e-7f);
   std::memset(inputs.at("input_ids").buffer->MutableData(), 0,

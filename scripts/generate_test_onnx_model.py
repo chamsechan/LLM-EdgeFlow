@@ -16,7 +16,7 @@ INT64 = 7
 
 
 def varint(value):
-    """Encode a nonnegative protobuf integer without a protobuf dependency."""
+    """不依赖 protobuf 库，编码一个非负 protobuf 整数。"""
     if value < 0:
         raise ValueError("Fixture protobuf integers must be nonnegative")
     encoded = bytearray()

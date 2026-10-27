@@ -20,8 +20,8 @@ constexpr auto kCandidates = MakeBlackboardKey<RankedTextBatch>("candidates");
 
 constexpr const char* kInputSlot = "rerank_in";
 
-// Converter 级业务上限。Operator 允许的段落上限为 max_doc_text_bytes；
-// 当前以这个更严格的上限为准，尚待方案负责人确认。
+// Converter 级业务上限，比 Operator 允许的段落上限 max_doc_text_bytes
+// 更严格；此处以该上限为准。
 constexpr size_t kMaxCandidatePassageBytes = input_limits::kMaxTextBytes;
 
 int DecodeOperatorRerankInput(const ExternalInputBatchView& source,

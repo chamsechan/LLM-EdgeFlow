@@ -182,7 +182,7 @@ TEST(PipelineParsingTest, NamedStructuralChangesFailAtTheirOwnedField) {
     EXPECT_FALSE(ParsePipelineConfig(invalid, &parsed, &diagnostic));
     EXPECT_EQ(diagnostic.code, example.code) << diagnostic.message;
     EXPECT_EQ(diagnostic.path, example.path);
-    // Failure after parsing earlier entries must not publish partial state.
+    // 前面的条目已解析后再失败时，不得发布部分状态。
     EXPECT_EQ(parsed.max_parallel_workers, 1u);
     ASSERT_EQ(parsed.models.size(), 1u);
     EXPECT_EQ(parsed.models[0].model_name, "generator");

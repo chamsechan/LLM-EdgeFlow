@@ -8,7 +8,7 @@ foreach(module PlatformOptions third_party/ThirdPartyCacheMetadata engines/Llama
   configure_file("${PROJECT_SOURCE_DIR}/cmake_ext/${module}.cmake"
                  "${fixture}/cmake_ext/${module}.cmake" COPYONLY)
 endforeach()
-# Tiny neutral archives exercise the cache importer; they are not vendor binaries.
+# 用极小的中性归档驱动缓存导入器，它们不是厂商二进制。
 file(WRITE "${fixture}/neutral/include/llama.h" "int neutral_llama();\n")
 file(WRITE "${fixture}/neutral/ggml/include/ggml.h" "int neutral_ggml();\n")
 file(WRITE "${fixture}/neutral/llama.cpp" "int neutral_ggml(); int neutral_llama(){return neutral_ggml();}\n")
@@ -19,7 +19,7 @@ file(WRITE "${fixture}/neutral/CMakeLists.txt" [=[
 cmake_minimum_required(VERSION 3.19)
 project(NeutralCache LANGUAGES CXX)
 option(GGML_CUDA "Neutral upstream GPU option" OFF)
-# Older upstream aliases translate only after the parent cache decision.
+# 上游旧别名只在父级缓存决策之后才转换。
 if(LLAMA_CUDA)
   set(GGML_CUDA ON CACHE BOOL "Neutral upstream GPU option" FORCE)
 endif()
@@ -138,8 +138,8 @@ function(assert_original_archives)
     message(FATAL_ERROR "Uncacheable configuration polluted default llama/Whisper archives")
   endif()
 endfunction()
-# Upstream options first appear during add_subdirectory. Later configurations
-# retain the same identity and source targets, without publishing shared archives.
+# 上游选项在 add_subdirectory 期间才首次出现。之后的配置保持相同的身份和
+# 源码目标，且不发布共享归档。
 foreach(iteration RANGE 2 3)
   run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/source-build"
               -DEXPECT_SOURCE=ON -DEXPECT_UNCACHEABLE=ON)
@@ -168,7 +168,7 @@ assert_original_archives()
 run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/import-build" -DEXPECT_IMPORTED=ON)
 run_checked("${CMAKE_COMMAND}" --build "${fixture}/import-build" --parallel 2)
 run_checked("${fixture}/import-build/consumer")
-# A caller-selected CPU feature policy must not import the previous archives.
+# 调用方选择的 CPU 特性策略不得导入之前的归档。
 run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/cpu-policy-build"
             -DEXPECT_SOURCE=ON -DGGML_CPU_ARM_ARCH=armv8.2-a)
 file(READ "${fixture}/cpu-policy-build/cache-path.txt" cpu_policy_cache)
@@ -183,7 +183,7 @@ endforeach()
 run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/original-policy-build" -DEXPECT_IMPORTED=ON)
 run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/internal-detection-build"
             -DEXPECT_IMPORTED=ON -DTEST_INTERNAL_GGML=ON)
-# Metadata alone cannot turn an incomplete archive set into a usable import.
+# 仅凭元数据不能让不完整的归档集合变成可用的导入。
 file(REMOVE "${cache}/lib/libggml-cpu.a")
 run_checked("${CMAKE_COMMAND}" -S "${fixture}" -B "${fixture}/missing-build" -DEXPECT_SOURCE=ON)
 file(WRITE "${cache}/.edgeflow-cache-fingerprint" "stale metadata")

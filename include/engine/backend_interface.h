@@ -16,7 +16,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 推理后端会话实例基类 (持有单个加载的模型资源)
+ * @brief 推理后端会话实例基类（持有单个加载的模型资源）
  */
 class IBackendSession {
  public:
@@ -29,7 +29,7 @@ class IBackendSession {
 };
 
 /**
- * @brief Tensor Graph 执行协议会话 (ONNX Runtime, TensorRT, NPU 等)
+ * @brief Tensor Graph 执行协议会话（ONNX Runtime、TensorRT、NPU 等）
  */
 class ITensorGraphSession : public IBackendSession {
  public:

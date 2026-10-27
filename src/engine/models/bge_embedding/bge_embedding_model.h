@@ -14,13 +14,11 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 基于 ITensorGraphSession 协议与 WordPiece 分词器的 BGE
- * 文本特征向量提取模型
+ * @brief BGE 文本向量模型（ITensorGraphSession + WordPiece 分词器）
  *
- * 架构隔离性：
+ * 架构隔离：
  * - 纯 Model 层实现，继承 IEmbeddingModel；
- * - 只依赖 ITensorGraphSession 中性张量图协议，完全不引用 ONNX Runtime
- * 或第三方头文件；
+ * - 只依赖中性张量图协议 ITensorGraphSession，不引用第三方头文件；
  * - 加载并验证声明的 WordPiece 词表，执行真实 WordPiece 分词与 padding；
  * - 负责池化 (Pooling: CLS / Mean) 与 L2 归一化；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。

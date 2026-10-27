@@ -107,7 +107,7 @@ bool WriteOutputValue(const ExternalOutputBatchView& destination,
   return true;
 }
 
-// 调用方先完成结果校验与行对齐；回调按原始请求行号组装中立输出值。
+// 调用方先完成结果校验与行对齐；回调按原始请求行号组装中性输出值。
 // 只有全部请求的行写入成功才报告 written_count，输出发布仍由 Runtime 负责。
 template <typename Value, typename Encode>
 int WriteOutputRows(size_t count, const OutputEncodeOptions& options,

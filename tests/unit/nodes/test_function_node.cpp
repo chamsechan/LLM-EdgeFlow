@@ -37,8 +37,8 @@ ResolvedPortBinding TextPort(std::string name, std::string key,
 }
 
 ValidatedNodePlan TextPlan(nlohmann::json params = nlohmann::json::object()) {
-  // These are the validated facts consumed by Init; producing a plan belongs
-  // to PipelineValidator's separate contract tests.
+  // 这些是 Init 使用的已校验信息；计划的生成由 PipelineValidator 自己的
+  // 契约测试覆盖。
   ValidatedNodePlan plan;
   plan.normalized_params = std::move(params);
   plan.ports = {TextPort("text", "request.text"),
@@ -586,7 +586,7 @@ TEST(AuthorNodeTest,
     SCOPED_TRACE(row.first);
     const auto control = node.Control(17, row.first);
     EXPECT_EQ(control.status, NodeControlStatus::kFailed);
-    // ValidateState contains hook exceptions and reports a rejected state.
+    // ValidateState 拦截钩子抛出的异常，并报告状态被拒绝。
     EXPECT_EQ(control.code, error::kInvalidArgument);
     EXPECT_FALSE(control.message.empty());
     if (!row.second.empty()) {

@@ -27,7 +27,7 @@ struct ControlRequest {
 };
 
 // 视图仅在同步调用期间借用载体。binding 回调负责校验和复制；
-// Converter 接收拥有数据所有权的中立值，不接触具体平台布局。
+// Converter 接收拥有数据所有权的中性值，不接触具体平台布局。
 struct RuntimeInputBatch {
   size_t count = 0;
   std::vector<ExternalInputBatchView> views;

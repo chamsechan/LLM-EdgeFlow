@@ -42,7 +42,7 @@ struct NodeControlResult {
 };
 
 /**
- * @brief 节点初始化上下文 (包含已通过静态校验的端口绑定与 SessionContext)
+ * @brief 节点初始化上下文（包含已通过静态校验的端口绑定与 SessionContext）
  */
 struct NodeInitContext {
   const ValidatedNodePlan* plan = nullptr;
@@ -70,8 +70,8 @@ class INode {
 
   /**
    * @brief 节点执行计算
-   * @param req_ctx 单次请求级黑板上下文
-   * @return 0 成功, 非 0 错误码
+   * @param req_ctx 单次请求级 Blackboard 上下文
+   * @return 0 成功，非 0 错误码
    */
   virtual int Process(AlgContext* req_ctx) = 0;
 

@@ -4,8 +4,8 @@
 
 namespace llm_edgeflow::test_support {
 
-// Arm around synchronous production calls, outside assertions. One failure
-// disarms injection so diagnostics and cleanup can allocate normally.
+// 在断言之外包住同步的生产调用。触发一次失败后即解除注入，使诊断和
+// 清理能正常分配内存。
 class ScopedAllocationFailure {
  public:
   explicit ScopedAllocationFailure(
@@ -23,8 +23,8 @@ class ScopedAllocationFailure {
   bool triggered_ = false;
 };
 
-// Observe the next real allocation without allocating callback storage.
-// Disarm before invoking the callback; it can safely arm a new observer.
+// 观察下一次真实分配，不为回调分配存储。调用回调前先解除，回调内可以
+// 安全地设置新的观察者。
 class ScopedNextAllocationCallback {
  public:
   using Callback = void (*)(void*);

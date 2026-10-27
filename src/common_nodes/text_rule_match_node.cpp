@@ -104,7 +104,7 @@ NodeResult<RuleMatchItem> MatchSentence(const Params& state,
     result.rule_id = rule_id;
   };
 
-  // 1. 匹配 categories (词表模式)
+  // 1. 匹配 categories（词表模式）
   for (const auto& [category, words] : state.categories) {
     for (const auto& w : words) {
       if (w.empty()) continue;
@@ -116,7 +116,7 @@ NodeResult<RuleMatchItem> MatchSentence(const Params& state,
     }
   }
 
-  // 2. 匹配 rules (结构化规则模式，支持 regex, exact, contains)
+  // 2. 匹配 rules（结构化规则模式，支持 regex, exact, contains）
   for (const auto& rule : state.rules) {
     bool rule_matched = false;
     std::unordered_map<std::string, std::string> rule_captures;

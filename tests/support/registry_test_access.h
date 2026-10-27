@@ -12,8 +12,8 @@
 
 namespace llm_edgeflow::test_support {
 
-// Restore native singleton state. Swapped callback owners are destroyed only
-// after the destructor's lock has been released; they may reenter the registry.
+// 恢复原生单例状态。被换出的回调持有者可能重入注册表，因此在析构函数
+// 释放锁之后才销毁。
 class RegistryTestAccess {
  public:
   class ScopedNodeState {

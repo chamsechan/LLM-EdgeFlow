@@ -13,8 +13,7 @@
 
 namespace llm_edgeflow::test {
 namespace {
-// Demo fixtures expose no vendor execution protocol or fabricated inference
-// API.
+// Demo 夹具不暴露厂商执行协议，也不伪造推理 API。
 class FixtureSession final : public IBackendSession {
  public:
   FixtureSession(std::string type, BatchPolicy policy,

@@ -27,8 +27,8 @@ enum {
 // -------------------------------------------------------------
 // 通用输入 envelope：MockInput -> MockDataPool -> MockTextInput
 // 当前只承载文本。每层 byte_size 必须等于该层 sizeof；binding 依次校验
-// root、data pool、 文本长度，再复制到中立 TextInputValue。全部借用至 Process
-// 返回。
+// root、data pool、文本长度，再复制到中性的 TextInputValue。全部借用至
+// Process 返回。
 // -------------------------------------------------------------
 
 enum MockInputType { kMockInputMultidata = 1 };
@@ -76,14 +76,14 @@ typedef struct MockOutput {
 } MockOutput;
 
 // -------------------------------------------------------------
-// 以下非文本或多字段输入暂保持原有结构，仅统一 Mock 命名。
+// 以下非文本或多字段输入各自使用独立结构，不经过上面的通用 envelope。
 // -------------------------------------------------------------
 
 /**
- * @brief 显式长度字符串 (借用至 Process 返回)
+ * @brief 显式长度字符串（借用至 Process 返回）
  */
 typedef struct MockString {
-  int32_t length;  // 有效字节长度 (不含结尾可选 NUL)
+  int32_t length;  // 有效字节长度（不含结尾可选 NUL）
   char* data;      // 指向字符数据区
 } MockString;
 
@@ -91,14 +91,14 @@ typedef struct MockString {
  * @brief 白名单类型泛型载荷
  */
 typedef struct MockAny {
-  int32_t type_id;        // 载荷类型 ID (受配置白名单约束)
+  int32_t type_id;        // 载荷类型 ID（受配置白名单约束）
   int32_t element_count;  // 元素个数
-  int32_t byte_length;  // 总字节长度 (必须等于 element_count * sizeof(element))
+  int32_t byte_length;  // 总字节长度，须等于 element_count * sizeof(element)
   void* data;           // 数据指针
 } MockAny;
 
 /**
- * @brief RGB8 图像帧输入 (行交错，借用至 Process 返回)
+ * @brief RGB8 图像帧输入（行交错，借用至 Process 返回）
  */
 typedef struct MockFrameInput {
   int32_t service_type;

@@ -158,7 +158,7 @@ void PublishOperatorOutputs(
     const std::vector<SelectedOutput>& selected,
     llm_edgeflow::operator_api::NamedIoBatch* outputs) {
   // 发布指针前，先完成所有可能抛异常的平台字段写入。
-  // 最终移交前，所有租约均由中立输出批次持有。
+  // 最终移交前，所有租约均由中性输出批次持有。
   for (size_t row = 0; row < staged->rows.size(); ++row) {
     for (auto& slot : staged->rows[row]) {
       const auto& entry = selected.at(slot.output_index);

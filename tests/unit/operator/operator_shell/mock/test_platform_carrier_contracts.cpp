@@ -34,8 +34,7 @@ void Reject(const OperatorValueTypeBinding& binding, const void* carrier,
 TEST(PlatformCarrierContractsTest,
      ExplicitStringLengthRequiresReadableNonNullNonNulBytesAndCopiesOwnership) {
   const auto& binding = Native("string");
-  std::array<char, 2> bytes{'h',
-                            'i'};  // No terminator is required by this carrier.
+  std::array<char, 2> bytes{'h', 'i'};  // 此载体不要求结尾 NUL。
   MockString text{2, bytes.data()};
   InputLimits limits;
   limits.max_text_bytes = 2;
@@ -264,8 +263,7 @@ TEST(PlatformCarrierContractsTest,
   Reject(binding, &invalid, limits, "data is null");
   metadata.type_id = 999;
   Reject(binding, &frame, limits, "MockFrameInput.metadata");
-  // The host has no byte-length field; validation cannot inspect allocation
-  // size.
+  // 宿主结构没有字节长度字段，校验无法检查分配大小。
 }
 
 TEST(PlatformCarrierContractsTest,

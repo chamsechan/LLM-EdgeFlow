@@ -47,8 +47,8 @@ TEST(NodeUnderTestTest, ReportsInvalidInitAndUnconnectedInputs) {
   EXPECT_NE(unregistered.diagnostic.find("missing_node"), std::string::npos);
   EXPECT_NONFATAL_FAILURE(unregistered.Process({}), "successful Init");
 
-  // A registered Node whose model binding fails must not run either; an empty
-  // batch would otherwise succeed without touching the model.
+  // 模型绑定失败的已注册 Node 同样不得运行，否则空批次会在不调用模型的
+  // 情况下成功。
   NodeUnderTest unbound;
   EXPECT_FALSE(unbound.Init("prompt_guided_llm", {{"bind_model", "absent"}},
                             {"input"}, {"output"}));

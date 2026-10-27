@@ -1,4 +1,4 @@
-# nlohmann/json 现代化 C++ JSON 库智能缓存配置
+# nlohmann/json：复用已缓存的头文件，缓存不可用时下载固定版本。
 
 set(JSON_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/nlohmann_json")
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)

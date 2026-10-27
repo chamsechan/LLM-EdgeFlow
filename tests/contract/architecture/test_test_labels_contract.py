@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect current CTest metadata for tier, enablement and skip policy."""
+"""检查当前 CTest 元数据中的层级、启用条件和跳过策略。"""
 
 import argparse
 import json

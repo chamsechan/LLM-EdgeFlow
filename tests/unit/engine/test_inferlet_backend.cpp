@@ -191,8 +191,7 @@ TEST(InferletBackendTest, SuppliedTextModelOwnsResourcesAndSerializesCalls) {
   ASSERT_NE(session, nullptr) << diagnostic;
   ExpectSessionContract(*session, ExecutionProtocol::kTextGeneration);
   EXPECT_FALSE(session->SupportsRandomSeed());
-  provider
-      .reset();  // Session owns runtime resources independently of provider.
+  provider.reset();  // Session 独立于提供者持有运行时资源。
   GenerateOptions options;
   options.max_tokens = 8;
   options.temperature = 0.0f;

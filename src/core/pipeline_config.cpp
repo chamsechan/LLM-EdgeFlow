@@ -42,14 +42,14 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   const auto& nodes_shape = shape::Property(structure, "pipeline");
   const auto& node_shape = nodes_shape.at("items");
 
-  // 1. 根节点必须是 JSON Object
+  // 根节点必须是 JSON Object
   if (!shape::HasType(root, structure)) {
     SetDiag(diagnostic, error::kRootType, "/",
             "Pipeline configuration root must be a JSON object");
     return false;
   }
 
-  // 2. 拒绝根节点未知字段
+  // 拒绝根节点的未知字段
   for (auto it = root.begin(); it != root.end(); ++it) {
     if (!shape::AllowsProperty(structure, it.key())) {
       SetDiag(diagnostic, error::kUnknownField, "/" + it.key(),
@@ -58,7 +58,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
   }
 
-  // comment (可选字符串)
+  // comment：可选字符串
   if (root.contains("comment") &&
       !shape::HasType(root["comment"], shape::Property(structure, "comment"))) {
     SetDiag(diagnostic, error::kFieldType, "/comment",
@@ -90,7 +90,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     result.max_parallel_workers = 1;
   }
 
-  // 6. 解析 models: 可选数组，最多 64 个模型定义
+  // models：可选数组，最多 64 个模型定义
   if (root.contains("models")) {
     if (!shape::HasType(root["models"], shape::Property(structure, "models"))) {
       SetDiag(diagnostic, error::kFieldType, "/models",
@@ -181,7 +181,7 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
   }
 
-  // 7. 解析 pipeline: 必填非空数组，最多 256 个节点定义
+  // pipeline：必填非空数组，最多 256 个节点定义
   if (shape::MissingRequired(root, structure, "pipeline")) {
     SetDiag(diagnostic, error::kMissingField, "/pipeline",
             "Missing required field 'pipeline'");

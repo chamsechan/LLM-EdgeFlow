@@ -1,4 +1,4 @@
-# Discover conventional scripts; configure only exceptional arguments and properties.
+# 按约定发现脚本测试，只为例外情况单独配置参数和属性。
 find_program(EDGEFLOW_BASH_EXECUTABLE bash REQUIRED)
 
 set(_edgeflow_guard_flags)

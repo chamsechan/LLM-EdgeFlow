@@ -112,8 +112,8 @@ bool ValidateEmbeddingOutput(const Tensor& tensor, size_t expected_batch,
     return false;
   }
 
-  // 使用公共安全访问器 GetTensorData<float> 统一完成 dtype、对齐、溢出与精确
-  // byte size 校验
+  // 由公共安全访问器 GetTensorData<float> 统一校验 dtype、对齐、溢出和
+  // 精确字节数。
   const float* data = GetTensorData<float>(tensor, diagnostic);
   if (!data) {
     return false;

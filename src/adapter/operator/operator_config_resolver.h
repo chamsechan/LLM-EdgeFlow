@@ -12,7 +12,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 解析后的中立部署配置与合成 Pipeline JSON
+ * @brief 解析后的中性部署配置与合成 Pipeline JSON
  */
 struct ResolvedOperatorConfig {
   std::filesystem::path conf_path;
@@ -24,7 +24,7 @@ struct ResolvedOperatorConfig {
 };
 
 /**
- * @brief 中立部署配置解析器
+ * @brief 中性部署配置解析器
  */
 class OperatorConfigResolver {
  public:

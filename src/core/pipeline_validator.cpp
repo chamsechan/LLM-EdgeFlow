@@ -58,7 +58,7 @@ void AddPortFlowDiagnostic(
 }
 
 // 一个请求在某 Blackboard 键下的条目数。Node 的 cardinality 描述 Node 自身的
-// 关系：输入表示条目的消费方式 ("1:1" 逐条，"N:1" 按请求分组，"N:M" 任意)，
+// 关系：输入表示条目的消费方式（"1:1" 逐条，"N:1" 按请求分组，"N:M" 任意），
 // 且接受任意形状；输出表示产出条目与逐条输入之间的关系。形状沿 DAG 推导，
 // 只在关键处检查：要求每请求一个条目的边界，以及必须两两配对的逐条输入。
 struct KeyShape {
@@ -365,7 +365,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
                                                 registered_model_types.end()}));
       continue;
     }
-    // Record the requested category even if its backend cannot be selected.
+    // 即使选不出对应的 Backend，也记录请求的模型类别。
     model_types[model.model_name] = model.model_type;
     std::vector<std::string> compatible_backends;
     for (const auto& backend : BackendRegistry::Instance().ListDefinitions())

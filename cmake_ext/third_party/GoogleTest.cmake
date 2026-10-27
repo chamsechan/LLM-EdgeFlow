@@ -1,4 +1,4 @@
-# Google Test (GTest) 智能缓存与预编译复用配置
+# Google Test：复用已缓存的预编译库，缓存不可用时从源码构建。
 
 option(GTEST_FORCE_REBUILD "Force rebuilding googletest even if cached in 3rdparty" OFF)
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)

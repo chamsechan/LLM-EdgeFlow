@@ -54,7 +54,7 @@ struct OperatorHandle {
 };
 
 /**
- * @brief 全局线程安全活跃句柄注册中心 (杜绝 Use-After-Free 与悬挂指针解引用)
+ * @brief 全局活跃句柄表（线程安全）：只接受已登记且未销毁的句柄
  */
 class OperatorHandleManager {
  public:

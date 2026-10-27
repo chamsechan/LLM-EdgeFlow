@@ -25,7 +25,7 @@
 namespace llm_edgeflow {
 
 /**
- * @brief Init 期间防御性捕获的输入端口连接事实。
+ * @brief Init 期间复制保存的输入端口连接信息。
  *
  * 初始化后不可变；用于区分仅做语义解析与按显式输入绑定校验。
  */
@@ -294,8 +294,8 @@ nlohmann::json SerializeParameterValue(
     auto result = ParameterContainer<T>::kArray ? nlohmann::json::array()
                                                 : nlohmann::json::object();
     if constexpr (ParameterContainer<T>::kArray) {
-      // libc++ 的 vector<bool> const iterator
-      // 也可能返回代理，按声明的元素类型序列化。
+      // libc++ 的 vector<bool> const iterator 也可能返回代理，按声明的
+      // 元素类型序列化。
       for (const auto& item : value)
         result.push_back(SerializeParameterValue<Value>(item, item_spec));
     } else {

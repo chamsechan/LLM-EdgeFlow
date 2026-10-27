@@ -7,8 +7,8 @@
 #include "contracts/inference_payloads.h"
 
 namespace llm_edgeflow {
-// Request-owned values at the platform binding / Converter boundary.
-// These describe content, never platform pointers, lengths or allocation.
+// 平台 binding 与 Converter 边界上由请求持有的值。
+// 只描述内容，从不包含平台指针、长度或分配信息。
 struct TextInputValue {
   std::string sentence_text;
 };

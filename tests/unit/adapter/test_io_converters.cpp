@@ -337,7 +337,7 @@ TEST(IoConverterTest, InvoiceOptionalRowsPreservePositionsAndFailureDetails) {
       destination.external_c_type_name = "JsonCarrier";
       destination.binding = &binding;
       destination.pool_spec = &pool;
-      // The invalid first result belongs to an omitted optional output row.
+      // 无效的首个结果属于一个被省略的可选输出行。
       destination.leased_values = {nullptr, &rows[1], &rows[2]};
       size_t written = 99;
       AdapterStatus status;

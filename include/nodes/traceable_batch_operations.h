@@ -67,7 +67,7 @@ class ItemJoinView {
                std::vector<RowType> rows)
       : left_(&left), right_(&right), rows_(std::move(rows)) {}
 
-  // 禁止从临时/右值批次构造 (含非 const 和 const)
+  // 禁止从临时/右值批次构造（含非 const 和 const）
   ItemJoinView(std::vector<TraceableItem<LeftPayload>>&&,
                const std::vector<TraceableItem<RightPayload>>&,
                std::vector<RowType>) = delete;

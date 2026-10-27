@@ -68,7 +68,7 @@ class ModelManager {
         return false;
       }
       if (!staged_ids.insert(item.model_name).second) {
-        return false;  // staging 内重复
+        return false;  // 暂存列表中名称重复
       }
       // 核对注册元数据与模型自身身份一致性
       if (!item.impl_name.empty() && item.model->ImplName() != item.impl_name) {

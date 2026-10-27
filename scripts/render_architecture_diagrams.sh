@@ -26,7 +26,7 @@ echo "================================================================"
 echo " [Architecture Diagram Renderer & Gate] Mode: ${MODE}"
 echo "================================================================"
 
-# The overview is maintained separately from the generated PlantUML diagrams.
+# 总览图独立维护，不由 PlantUML 生成。
 if [[ ! -s "${OVERVIEW_ASSET}" ]]; then
   echo "❌ Missing or empty framework overview: ${OVERVIEW_ASSET}"
   exit 1

@@ -34,7 +34,7 @@ bool ValueMatchesConfigKind(const nlohmann::json& value, ConfigValueKind kind) {
   return false;
 }
 
-// Locate an owning entry without reparsing array indices at each call site.
+// 定位所属条目，避免每个调用点重复解析数组下标。
 struct DocumentEntry {
   std::string path;
   const nlohmann::json* value;
@@ -59,7 +59,7 @@ struct ParameterContext {
   std::vector<ConfigFieldDefinition> fields;
 };
 
-// Both explanations and rename patches resolve the same nested declaration.
+// 解释与重命名补丁都解析同一个嵌套声明。
 std::optional<ParameterContext> FindParameterContext(
     const nlohmann::json& root, const std::string& path,
     const PipelineCatalogSnapshot& catalog) {

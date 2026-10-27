@@ -94,7 +94,7 @@ bool ParseOrExtractJson(const Params& options, const std::string& input,
         JsonParseStatus::kExtractedFromMarkdown);
   }
 
-  // 保留第一个外层容器 (含对象数组)。绝不从格式错误或被截断的父容器中
+  // 保留第一个外层容器（含对象数组）。绝不从格式错误或被截断的父容器中
   // 提取合法的子元素。
   const size_t start = input.find_first_of("[{");
   if (start == std::string::npos) return false;

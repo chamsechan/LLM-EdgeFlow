@@ -25,7 +25,7 @@ namespace api = operator_api;
 using Json = nlohmann::json;
 constexpr char kBusinessBackend[] = "business_response_fixture";
 
-// Only the model boundary is replaced. Converters, planning and Nodes are real.
+// 只替换模型边界；Converter、规划和 Node 都是真实实现。
 class BusinessSession final : public IBackendSession {
  public:
   const std::string& BackendType() const noexcept override {

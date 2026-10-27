@@ -80,8 +80,7 @@ NodeResult<Outputs> Run(const Inputs& inputs, const Params& params,
     try {
       item.data.json_payload = item.data.structured_data.dump();
     } catch (const nlohmann::json::type_error& error) {
-      // Keep the single endpoint's raw-text contract; its document consumer
-      // rejects a result that cannot be encoded.
+      // 单端点保持原始文本契约；无法编码的结果由其文档消费方拒绝。
       if (params.endpoints.size() != 1 || error.id != 316) throw;
       item.data.is_valid = false;
       item.data.parse_status = JsonParseStatus::kFailed;

@@ -82,7 +82,7 @@ list(APPEND integration_headers ${selected_shell_headers})
 edgeflow_header_view(integration ${integration_headers} ${core_headers}
     ${model_api_headers} ${platform_mock_headers})
 
-# 记录目标实际求值后的 include 路径 (含传递的使用要求)，
+# 记录目标实际求值后的 include 路径（含传递的使用要求），
 # 以便现有 LayerGuard 门禁发现意外放宽。
 function(edgeflow_generate_layer_compile_manifest)
   set(content "set(layer_cxx [==[${CMAKE_CXX_COMPILER}]==])\n")

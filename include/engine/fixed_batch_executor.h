@@ -25,17 +25,16 @@ struct BatchSlice {
 /**
  * @brief 固定/动态 Max Batch 硬件批处理调度器
  *
- * 解决问题：
- * 1. 当底层推理运行时（如 NPU/DSP/TensorRT）要求固定 Batch
- * 时，自动计算切片与补齐。
- * 2. 具备样本溯源能力：自动保留 (req_id, sub_id) 元数据，剔除 Pad 结果。
- * 3. 失败全量回滚：任一批次推理失败或异常时，清空已产出结果，避免半脏数据暴露。
+ * 职责：
+ * 1. 底层推理运行时（如 NPU/DSP/TensorRT）要求固定 Batch 时，自动切片并补齐。
+ * 2. 样本溯源：保留 (req_id, sub_id) 元数据，剔除填充项的结果。
+ * 3. 失败全量回滚：任一批次失败或抛出异常时清空已产出结果，不暴露部分结果。
  */
 class FixedBatchExecutor {
  public:
-  // 动态会话上的单条目模型语义。张量/固定批模型仍使用 Execute，并显式准备
-  // 填充后的批。回调只负责一个输入 -> 一个输出；Execute 负责来源追踪和
-  // 回滚；异常由 Execute 统一映射。
+  // 供动态批会话逐条执行模型语义：回调只负责一个输入 -> 一个输出，来源追踪、
+  // 回滚和异常映射由 Execute 统一处理。张量模型和固定批模型仍直接使用
+  // Execute，并显式准备填充后的批。
   template <typename TIn, typename TOut, typename RunItem>
   static int ExecuteItems(const std::vector<TraceableItem<TIn>>& inputs,
                           const BatchPolicy& policy, RunItem&& run_item,
@@ -64,7 +63,7 @@ class FixedBatchExecutor {
   }
 
   /**
-   * @brief 基于 BatchSlice 和 BatchPolicy 的新版中性批处理入口
+   * @brief 基于 BatchSlice 和 BatchPolicy 的中性批处理入口
    */
   template <typename TIn, typename TOut, typename RunBatch>
   static int Execute(const std::vector<TraceableItem<TIn>>& inputs,
@@ -113,8 +112,7 @@ class FixedBatchExecutor {
           return ret;
         }
 
-        // 严格数量检查：固定批次必须严格等于 exec_count，动态批次必须严格等于
-        // valid_count
+        // 数量检查：固定批须等于 exec_count，动态批须等于 valid_count。
         size_t expected_count =
             (policy.fixed_batch_size > 0) ? exec_count : valid_count;
         if (batch_outputs.size() != expected_count) {

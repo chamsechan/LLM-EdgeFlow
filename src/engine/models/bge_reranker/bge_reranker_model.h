@@ -14,13 +14,11 @@
 namespace llm_edgeflow {
 
 /**
- * @brief 基于 ITensorGraphSession 协议与 WordPiece 分词器的 BGE Cross-Encoder
- * 语义精排打分模型
+ * @brief BGE Cross-Encoder 精排打分模型（ITensorGraphSession + WordPiece）
  *
- * 架构隔离性：
+ * 架构隔离：
  * - 纯 Model 层实现，继承 IRerankModel；
- * - 只依赖 ITensorGraphSession 中性张量图协议，完全不引用 ONNX Runtime
- * 或第三方头文件；
+ * - 只依赖中性张量图协议 ITensorGraphSession，不引用第三方头文件；
  * - 加载并验证声明的 WordPiece 词表，执行 pair 编码与 padding；
  * - 负责 logit 校验与 score 激活 (sigmoid / identity)；
  * - 使用 FixedBatchExecutor 驱动批次并保持 (req_id, sub_id) 溯源。

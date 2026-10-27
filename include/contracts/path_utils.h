@@ -16,7 +16,7 @@ inline bool HasParentPathComponent(const std::filesystem::path& path) {
   return false;
 }
 
-// 按路径分量比较已归一化/规范化的路径 (含根目录本身)。字符串前缀比较不够：
+// 按路径分量比较已归一化/规范化的路径（含根目录本身）。字符串前缀比较不够：
 // /root/models_extra 不在 /root/models 内。
 inline bool IsPathWithinRoot(const std::filesystem::path& root,
                              const std::filesystem::path& candidate) {

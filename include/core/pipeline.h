@@ -28,12 +28,11 @@ enum class ControlFailureStage {
 };
 
 /**
- * @brief 算法管线调度核心引擎 (Pipeline)
+ * @brief 算法管线调度核心引擎
  *
- * 支持数据依赖与额外顺序约束 (`depends_on`) 的 DAG (有向无环图)、
- * 消费 PipelineValidator 生成的已验证拓扑计划，不重复解析或排序。
- * 支持配置驱动的【顺序调度 (Sequential)】与【多分支异步波前并发调度
- * (Parallel)】。
+ * 按数据依赖和额外顺序约束（`depends_on`）构成的 DAG 执行，直接消费
+ * PipelineValidator 生成的已验证拓扑计划，不重复解析或排序。
+ * 由配置选择顺序调度（Sequential）或多分支波前并发调度（Parallel）。
  */
 class Pipeline {
  public:
@@ -53,7 +52,7 @@ class Pipeline {
   ~Pipeline();
 
   /**
-   * @brief 从已验证的管线计划构建整条管线 (接收所有权，避免重复验证与物化)
+   * @brief 从已验证的管线计划构建整条管线（接收所有权，避免重复验证与物化）
    */
   bool BuildFromPlan(std::unique_ptr<ValidatedPipelinePlan> plan,
                      PipelineDiagnostic* diagnostic = nullptr);
@@ -67,8 +66,8 @@ class Pipeline {
    * @brief 运行时动态控制
    */
   // 调用须与 Execute/Control 在外部串行化。广播更新不具事务性，error 会指出
-  // 失败的实例。JSON 信封
-  // {"$edgeflow_control":1,"node":"name","payload":{...}} 只作用于一个实例。
+  // 失败的实例。以下 JSON 信封只作用于一个实例：
+  // {"$edgeflow_control":1,"node":"name","payload":{...}}
   int Control(int cmd, const std::string& json_param,
               std::string* error = nullptr,
               ControlFailureStage* failure_stage = nullptr);
@@ -97,7 +96,7 @@ class Pipeline {
 
   State state_ = State::kEmpty;
   ExecutionMode execution_mode_ = ExecutionMode::kSequential;
-  // 使用堆所有权，确保完整暂存的运行时组件提交到本 façade 时，
+  // 使用堆所有权，确保完整暂存的运行时组件提交到本门面时，
   // 已交给已初始化 Node 的地址保持不变。
   std::unique_ptr<SessionContext> session_ctx_;
   std::unique_ptr<ValidatedPipelinePlan> plan_;

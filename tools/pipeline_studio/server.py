@@ -27,7 +27,7 @@ import webbrowser
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-# Share the native framework's names and values without a second Studio code table.
+# 直接共用原生框架的名称和取值，Studio 不另建一份代码表。
 ErrorCode = IntEnum("ErrorCode", {
     name: int(value)
     for value, name in re.findall(

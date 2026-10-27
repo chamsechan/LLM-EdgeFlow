@@ -376,8 +376,8 @@ TEST_F(IoParametersTest,
             0)
       << error_;
   EXPECT_EQ(plan->outputs.size(), 2u);
-  // An individual 64 KiB output at requested depth 1024 also exceeds 64 MiB
-  // once the native outer structure and string header are counted.
+  // 单个 64 KiB 输出在请求深度 1024 下，计入原生外层结构和字符串头后
+  // 同样超过 64 MiB。
   EXPECT_EQ(IoPlanResolver::ResolveFromPipelineJson(KeywordDeployment(65536),
                                                     config_.string(), &plan,
                                                     &error_, &diagnostic, 1024),

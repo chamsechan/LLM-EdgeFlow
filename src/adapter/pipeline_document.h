@@ -21,7 +21,7 @@ struct PipelineDocumentSplit {
   nlohmann::json neutral_pipeline_json;
 };
 
-// Integration validates io; all remaining fields are validated by Core.
+// io 由 Integration 校验，其余字段都由 Core 校验。
 bool SplitPipelineDocument(const nlohmann::json& root,
                            PipelineDocumentSplit* out_split,
                            std::string* out_error,

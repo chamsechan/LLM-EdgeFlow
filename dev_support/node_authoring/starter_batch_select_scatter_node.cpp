@@ -33,7 +33,7 @@ NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
 
   const auto& drafts = first_res.value();
 
-  // 第 2 步：选出需要润色的条目 (包含 polish_tag)
+  // 第 2 步：选出需要润色的条目（包含 polish_tag）
   auto selection_res = SelectBatch(drafts, [&](const std::string& text) {
     return text.find(params.polish_tag) != std::string::npos;
   });

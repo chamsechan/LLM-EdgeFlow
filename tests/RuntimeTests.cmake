@@ -1,7 +1,7 @@
 # 分片的 Google Test runner 与按标签驱动的开发测试矩阵。
 
-# Collect each runner's owned directories, including nested tests. Concrete
-# Operator shells share a directory convention; only the selected shell is used.
+# 收集每个 runner 自有的目录，包括嵌套的测试。具体 Operator 壳共用同一目录
+# 约定，只使用选中的壳。
 function(edgeflow_collect_test_files output_var)
   file(GLOB_RECURSE sources CONFIGURE_DEPENDS ${ARGN})
   set(selected)
@@ -20,8 +20,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/ScaffoldFixtures.cmake)
 
 option(LLM_EDGEFLOW_TEST_PCH "Enable precompiled headers for test runners" OFF)
 
-# Runtime runners share only their test entrypoint, runtime link and optional PCH.
-# Fixture sources, allocation instrumentation and component libraries stay local.
+# 运行时 runner 只共享测试入口、运行时链接和可选的 PCH。
+# 夹具源码、分配插桩和组件库留在各自的 runner 内。
 function(edgeflow_configure_gtest_target target_name)
   target_sources(${target_name} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/support/gtest_main.cpp")
@@ -217,8 +217,8 @@ foreach(backend ONNXRUNTIME LLAMACPP WHISPERCPP KITELLM INFERLET)
     EDGEFLOW_EXPECT_${backend}=$<BOOL:${LLM_EDGEFLOW_HAS_${backend}}>)
 endforeach()
 
-# GoogleTest discovers the compiled cases, including generated tests. There is
-# no historical suite allowlist; each case gets its own actual execution filter.
+# GoogleTest 发现全部已编译用例（包括生成的测试）。不维护套件白名单，
+# 每个用例使用自己的实际执行过滤器。
 include(GoogleTest)
 set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/SafeGtestDiscovery.cmake")

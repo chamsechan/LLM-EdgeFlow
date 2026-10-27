@@ -34,7 +34,7 @@ bool ResolveModelFiles(const nlohmann::json& pipeline_json,
       return true;
     }
     const auto resolve = [&](nlohmann::json& value, const std::string& path) {
-      // Core reports structural type errors; Integration owns filename rules.
+      // 结构类型错误由 Core 报告；文件名规则归 Integration 负责。
       if (!value.is_string()) return true;
       std::filesystem::path file;
       std::string message;

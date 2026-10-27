@@ -17,7 +17,7 @@ class RegistryTestAccess;
 
 struct OperatorValueTypeBinding;
 
-// Size fields inherit the platform hard maximum for validation and tools.
+// 尺寸字段沿用平台硬上限，供校验和工具使用。
 std::vector<ConfigFieldDefinition> OutputConverterParameterFields(
     const OutputConverterDefinition& definition,
     const OperatorValueTypeBinding* allocator = nullptr);

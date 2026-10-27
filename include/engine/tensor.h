@@ -66,7 +66,7 @@ struct TensorSpec {
 using TensorMap = std::unordered_map<std::string, Tensor>;
 
 /**
- * @brief 获取元素类型字节大小 (未知类型严格 fail-closed 返回 0)
+ * @brief 获取元素类型字节大小（未知类型按 fail-closed 返回 0）
  */
 inline size_t ElementTypeByteSize(ElementType type) noexcept {
   switch (type) {
@@ -236,7 +236,7 @@ inline auto CheckedTensorData(const Tensor& tensor, Accessor accessor,
 }  // namespace inference_detail
 
 /**
- * @brief 分配并创建 Host 端 Tensor 实例 (严格 fail-closed)
+ * @brief 分配并创建 Host 端 Tensor 实例（fail-closed）
  */
 inline bool CreateHostTensor(const TensorDesc& desc, Tensor* tensor,
                              std::string* diagnostic = nullptr) noexcept {

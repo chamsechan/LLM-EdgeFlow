@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise layer guards through their real command-line entrypoints."""
+"""通过真实的命令行入口验证分层守卫。"""
 
 import os
 from pathlib import Path
@@ -191,7 +191,7 @@ class IncludeOwnershipContractTest(SourceTreeTest):
                                 ('kite_llm', 'kiteLLM.h'),
                                 ('inferlet', 'inferlet.h')):
             with self.subTest(backend=backend):
-                # Empty resolved headers prove ownership without using any SDK.
+                # 用可解析的空头文件证明归属，不需要任何 SDK。
                 target = f'src/engine/backends/{backend}/vendor/{header}'
                 self.write(target)
                 include = f'vendor/{header}'

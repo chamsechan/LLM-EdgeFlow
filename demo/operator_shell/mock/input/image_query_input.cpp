@@ -64,7 +64,7 @@ int BuildImageQueryRequests(
     }
   }
 
-  // Dataset files are only a Demo carrier source. The SDK receives RGB8 pixels.
+  // 数据集文件只是 Demo 构造载体的来源；SDK 接收的是 RGB8 像素。
   std::ifstream file(storage->image, std::ios::binary | std::ios::ate);
   const auto length = file ? file.tellg() : std::streampos(-1);
   if (length <= 0 || length > 32 * 1024 * 1024) {

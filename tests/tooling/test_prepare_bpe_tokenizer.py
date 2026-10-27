@@ -111,7 +111,7 @@ def header_words(content):
 
 class FixtureTest(ToolTestCase):
     def test_fixtures_are_deterministic_and_well_formed(self):
-        # (merge_priority：0 rank、1 score，pre_tokenizer：0 none、1 byte_level_qwen2)
+        # （merge_priority：0 rank、1 score；pre_tokenizer：0 none、1 byte_level_qwen2）
         expected_parameters = {"metaspace": (1, 0), "byte_level": (0, 1)}
         for kind, (priority, pre_tokenizer) in expected_parameters.items():
             with self.subTest(kind):

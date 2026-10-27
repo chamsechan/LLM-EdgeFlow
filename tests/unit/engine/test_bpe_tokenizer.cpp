@@ -24,8 +24,8 @@
 // 两份合成分词器文件由 tools/prepare_bpe_tokenizer.py fixture 在构建时生成。
 //
 // metaspace：score 优先级、字符级单位、字节回退、Replace(" ", "▁")。
-//   ID 0..5 特殊 token，6..261 是 <0xXX>（ID = 6 + 字节值），262
-//   起是字符与合并结果。
+//   ID 0..5 是特殊 token，6..261 是 <0xXX>（ID = 6 + 字节值），
+//   262 起是字符与合并结果。
 // byte_level：rank 优先级、字节级单位、NFC、byte_level_qwen2 预分词。
 //   ID 0..255 是单字节 token（ID = 字节值），之后按规则顺序编号。
 // fixture 内容见工具中的 fixture_metaspace / fixture_byte_level。
@@ -309,19 +309,18 @@ TEST(BpeTokenizerTest, IsEndTokenMatchesTheRecordedList) {
   }
 }
 
-// score
-// 优先级的组合键：分数高者先；同分时左段码点数多者先，再右段码点数多者先，
-// 再合成 token 的 ID 小者先；键完全相同时取最左。
+// score 优先级的组合键：分数高者先；同分时左段码点数多者先，
+// 再右段码点数多者先，再合成 token 的 ID 小者先；键完全相同时取最左。
 TEST(BpeTokenizerTest, ScoreMergesFollowTheCompositeKeyAndLeftmostOnTies) {
   const BpeTokenizer& t = *Metaspace();
-  // abcd：bc(-10) 最先，得到 a|bc|d。之后 abc 与 bcd
-  // 同分(-13)：只看分数并取最左会合并 abc，得到
-  // abc|d；组合键比较左段码点数，bcd（左段 bc 有 2 个）先于 abc（左段 a 有 1
-  // 个）， 尽管 abc 更靠左、ID 也更小。
+  // abcd：bc(-10) 最先，得到 a|bc|d。之后 abc 与 bcd 同分(-13)：只看分数
+  // 并取最左会合并 abc，得到 abc|d；组合键比较左段码点数，
+  // bcd（左段 bc 有 2 个）先于 abc（左段 a 有 1 个），
+  // 尽管 abc 更靠左、ID 也更小。
   ASSERT_LT(M("abc"), M("bcd"));
   EXPECT_EQ(Encode(t, "abcd"), (Ids{M("a"), M("bcd")}));
   // pqr：pq 与 qr 同分，左右段码点数也相同，最后按合成 token 的 ID：qr 的 ID
-  // 更小， 所以先合并 qr，得到 p|qr；只取最左会得到 pq|r。
+  // 更小，所以先合并 qr，得到 p|qr；只取最左会得到 pq|r。
   ASSERT_LT(M("qr"), M("pq"));
   EXPECT_EQ(Encode(t, "pqr"), (Ids{M("p"), M("qr")}));
   EXPECT_EQ(Encode(t, "pq"), (Ids{M("pq")}));
@@ -378,9 +377,8 @@ TEST(BpeTokenizerTest, RejectsInvalidInputAndBadArguments) {
   }
 }
 
-// 精确的上限边界：恰好 kMaxEncodeBytes 能编码，多 1
-// 字节被拒绝。填充文本没有可合并的 单位，使每个用例在 sanitizer
-// 下也能在超时之内完成。
+// 精确的上限边界：恰好 kMaxEncodeBytes 能编码，多 1 字节被拒绝。填充文本
+// 没有可合并的单位，使每个用例在 sanitizer 下也能在超时之内完成。
 void ExpectExactMaximumInput(const BpeTokenizer& tokenizer, int32_t filler_id) {
   const std::string text(kMaxEncodeBytes, 'x');
   Ids ids;
@@ -538,8 +536,8 @@ TEST(BpeTokenizerTest, NfcOfLongCombiningMarkRunsIsFast) {
   ASSERT_LE(text.size(), kMaxEncodeBytes);
   ASSERT_GT(text.size(), kMaxEncodeBytes - 4);
 
-  // 规范排序后 U+0323（220）在前、U+0301（230）在后；这里的 Unicode 表里 a
-  // 与它们 都没有合成，所以结果就是排序后文本的逐字节编码。
+  // 规范排序后 U+0323（220）在前、U+0301（230）在后；这里的 Unicode 表里
+  // a 与它们都没有合成，所以结果就是排序后文本的逐字节编码。
   std::string sorted = "a";
   for (size_t i = 0; i < marks; ++i) sorted += "\xCC\xA3";
   for (size_t i = 0; i < marks; ++i) sorted += "\xCC\x81";

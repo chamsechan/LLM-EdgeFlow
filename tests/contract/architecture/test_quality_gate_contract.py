@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical gate failure propagation and the real GoogleTest delivery guard."""
+"""规范门禁的失败传递，以及真实的 GoogleTest 交付守卫。"""
 
 import argparse
 import json
@@ -208,8 +208,7 @@ if [[ "${FAIL_AT:-}" == "$stage" ]]; then exit 23; fi
                 ('expanded', symbols + ['UnexpectedSdkExport'], 1),
                 ('replaced', symbols[:-1] + ['UnexpectedSdkExport'], 1)):
             with self.subTest(case=name):
-                # Also change the linker manifest: the independent public ABI
-                # guard must still reject a coordinated manifest/library drift.
+                # 同时修改链接器清单：独立的公开 ABI 守卫仍须拒绝清单与库的协同漂移。
                 manifest.write_text('\n'.join(exports) + '\n')
                 source = self.root / (name + '.cpp')
                 source.write_text('\n'.join('extern "C" void ' + symbol + '() {}' for symbol in exports))

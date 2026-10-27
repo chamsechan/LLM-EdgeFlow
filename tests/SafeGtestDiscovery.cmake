@@ -1,6 +1,6 @@
-# CMake's GoogleTest module adds an output-based skip regex, even when main
-# rejects a required skip. Remove that property while interpreting its generated
-# CTest entries. Explicit return code 77 remains the only optional skip signal.
+# 即使 main 拒绝了必需用例的跳过，CMake 的 GoogleTest 模块仍会添加基于输出的
+# 跳过正则。解释其生成的 CTest 条目时移除该属性；显式返回码 77 仍是唯一的
+# 可选跳过信号。
 function(set_tests_properties)
   set(forwarded)
   set(drop_value OFF)

@@ -9,15 +9,15 @@ namespace llm_edgeflow {
  * @brief 具备样本级溯源能力的包装结构体
  *
  * 用于在管线全生命周期中严格追踪样本归属：
- * - 当外部输入 vector<void*> inputs 传入 N 个请求时，第 i 个请求的 req_id = i;
- * - 当第 i 个请求在前处理中被拆分为 M 个分段时，第 j 个分段的 sub_id = j;
- * - 无论经历多少层 Node 传递或固定 Batch 补齐/丢弃，均可通过 req_id 和 sub_id
- * 精确对齐回原输入。
+ * - 外部输入 vector<void*> inputs 传入 N 个请求时，第 i 个请求的 req_id = i；
+ * - 第 i 个请求在前处理中被拆分为 M 个分段时，第 j 个分段的 sub_id = j；
+ * - 无论经过多少层 Node 传递或固定 Batch 补齐/丢弃，均可通过 req_id 和
+ *   sub_id 精确对齐回原输入。
  */
 template <typename T>
 struct TraceableItem {
   uint32_t req_id = 0;  // 所属外部请求在 inputs 中的索引
-  uint32_t sub_id = 0;  // 所属子分片/候选在裂变中的序列索引
+  uint32_t sub_id = 0;  // 在所属请求拆分出的子分片或候选中的序号
   T data;               // 实际业务载荷数据
 
   TraceableItem() = default;

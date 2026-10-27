@@ -95,7 +95,7 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
     return Fail(diagnostic, error::kRegistryConflict, "/io",
                 audit_errors.front());
 
-  // Audit guarantees the selected host and allocator bindings exist.
+  // Audit 已保证所选的宿主 binding 和分配器 binding 存在。
 
   PreparedDeployment prepared;
   // 宿主 key 为 <prefix>.<type>，只按 type 路由，故每方向 type 唯一。

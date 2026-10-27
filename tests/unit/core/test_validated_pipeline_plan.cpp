@@ -168,7 +168,7 @@ class PipelinePlanningTest : public ::testing::Test {
     return root;
   }
 
-  // Every test restores the real catalog; probe creators never execute.
+  // 每个测试都会恢复真实 Catalog；探针的创建函数从不执行。
   test_support::RegistryTestAccess::ScopedNodeState nodes_;
 };
 
@@ -321,8 +321,8 @@ TEST_F(PipelinePlanningTest,
 
 TEST_F(PipelinePlanningTest,
        RejectsAmbiguousCompatibleImplementationsInIsolatedProcess) {
-  // ModelRegistry is process-lived. Keep this deliberately invalid catalog in a
-  // child.
+  // ModelRegistry 与进程同生命周期，因此把这个有意非法的 Catalog 放在
+  // 子进程中。
   EXPECT_EXIT(
       {
         ModelDefinition duplicate =
