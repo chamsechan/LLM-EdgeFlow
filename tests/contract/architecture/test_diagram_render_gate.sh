@@ -8,6 +8,7 @@ cp "$root/doc/architecture_classes.puml" "$workspace/doc/"
 cp "$root/doc/architecture_flow.puml" "$workspace/doc/"
 cp "$root/doc/assets/architecture_class_diagram.svg" "$workspace/doc/assets/"
 cp "$root/doc/assets/architecture_flow.svg" "$workspace/doc/assets/"
+cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
 renderer="$root/scripts/render_architecture_diagrams.sh"
 cache="${LLM_EDGEFLOW_TOOL_CACHE_DIR:-$root/build/tool-cache}"
 run() {
@@ -23,6 +24,11 @@ expect_failure() {
   grep -Fq "$message" "$workspace/output" || { cat "$workspace/output" >&2; exit 1; }
 }
 expect_failure 'Usage:' run --unsupported
+rm "$workspace/doc/assets/framework_overview.svg"
+expect_failure 'Missing or empty framework overview' run --check
+touch "$workspace/doc/assets/framework_overview.svg"
+expect_failure 'Missing or empty framework overview' run --check
+cp "$root/doc/assets/framework_overview.svg" "$workspace/doc/assets/"
 # A narrow Java transport stub proves rejected cache bytes never reach rendering.
 cat > "$workspace/java-version-only" <<'JAVA'
 #!/usr/bin/env bash

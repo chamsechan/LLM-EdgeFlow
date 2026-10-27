@@ -170,7 +170,6 @@ class PipelineCliContractTest(unittest.TestCase):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--tool", type=Path, default=TOOL)
-    parser.add_argument("--test-tool", type=Path)
     parser.add_argument("--repo", type=Path, default=ROOT)
     arguments, remaining = parser.parse_known_args()
     TOOL = arguments.tool.resolve()

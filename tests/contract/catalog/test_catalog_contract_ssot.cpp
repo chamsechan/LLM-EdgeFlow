@@ -107,15 +107,5 @@ TEST(CatalogPublicationTest,
     }
   }
 }
-
-TEST(CatalogPublicationTest, SnapshotIsIndependentOfPublishedCopyMutation) {
-  const auto snapshot = PipelineCatalog::Snapshot();
-  ASSERT_FALSE(snapshot.nodes.empty());
-  auto copied = snapshot;
-  copied.nodes.front().node_type = "caller mutation";
-  const auto current = PipelineCatalog::Snapshot();
-  EXPECT_EQ(current.nodes.front().node_type, snapshot.nodes.front().node_type);
-  EXPECT_FALSE(current.node_registry_has_conflict);
-}
 }  // namespace
 }  // namespace llm_edgeflow

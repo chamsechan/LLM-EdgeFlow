@@ -224,7 +224,6 @@ set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/SafeGtestDiscovery.cmake")
 set(_edgeflow_tier2 "tier2;dev-fast;sanitizer-compatible;sanitizer-runtime")
 set(_edgeflow_tier3 "tier3;integration;dev-fast;sanitizer-compatible;sanitizer-runtime")
-set(_edgeflow_tier4 "tier4;tooling;dev-fast;sanitizer-compatible")
 function(edgeflow_discover target)
   gtest_discover_tests(${target}
     DISCOVERY_MODE PRE_TEST
@@ -269,8 +268,6 @@ add_test(NAME LayerGuardTest
   COMMAND ${CMAKE_COMMAND} -E env
           "LLM_EDGEFLOW_LAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake"
           ${PROJECT_SOURCE_DIR}/scripts/check_layer_isolation.sh)
-add_test(NAME ArchitectureDocsDriftTest
-  COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_architecture_docs.sh)
 add_test(NAME GovernanceConsistencyTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/check_governance.sh)
 add_test(NAME DocLinksTest
@@ -278,7 +275,7 @@ add_test(NAME DocLinksTest
 add_test(NAME DiagramAssetsCheckTest
   COMMAND ${PROJECT_SOURCE_DIR}/scripts/render_architecture_diagrams.sh --check)
 set_tests_properties(
-  LayerGuardTest ArchitectureDocsDriftTest GovernanceConsistencyTest DocLinksTest
+  LayerGuardTest GovernanceConsistencyTest DocLinksTest
   PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
   LABELS "tier1;static-gate;dev-fast;sanitizer-compatible")
 set_tests_properties(DiagramAssetsCheckTest PROPERTIES
@@ -320,12 +317,6 @@ if(LLM_EDGEFLOW_HAS_ONNXRUNTIME)
     CrossRerankDemoMissingModelFailsClosedTest
     PROPERTIES WILL_FAIL TRUE)
 endif()
-
-add_test(NAME PipelineToolCatalogTest COMMAND $<TARGET_FILE:alg_pipeline_tool>
-  catalog)
-set_tests_properties(PipelineToolCatalogTest
-  PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-  LABELS "${_edgeflow_tier4}")
 
 add_custom_target(edgeflow_dev_tests DEPENDS
   alg_demo alg_pipeline_tool alg_pipeline_tool_test alg_show

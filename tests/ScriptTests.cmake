@@ -25,7 +25,6 @@ set_property(SOURCE contract/authoring/test_spec_signature_diagnostics.cmake
     "-DLAYER_COMPILE_MANIFEST=${PROJECT_BINARY_DIR}/layer_includes/compile_checks_$<CONFIG>.cmake")
 set_property(SOURCE tooling/test_pipeline_cli.py PROPERTY EDGEFLOW_TEST_ARGS
   --tool $<TARGET_FILE:alg_pipeline_tool>
-  --test-tool $<TARGET_FILE:alg_pipeline_tool_test>
   --repo "${PROJECT_SOURCE_DIR}")
 
 edgeflow_collect_test_files(scripts
