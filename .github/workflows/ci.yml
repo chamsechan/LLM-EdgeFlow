@@ -53,15 +53,15 @@ jobs:
           tar -xzf "${archive}" -C "${RUNNER_TEMP}"
           echo "${RUNNER_TEMP}/cmake-3.19.8-Linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Restore/Save 3rdparty Dependencies
+      - name: Restore/Save 3rdparty Downloads
         uses: actions/cache@v4
         with:
           path: |
             3rdparty/inferlet
             3rdparty/stb_image
-          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
+          key: 3rdparty-downloads-${{ runner.os }}-${{ hashFiles('cmake_ext/engines/Inferlet.cmake', 'cmake_ext/third_party/StbImage.cmake') }}
           restore-keys: |
-            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
+            3rdparty-downloads-${{ runner.os }}-
 
       - name: Restore CCache
         uses: ./.github/actions/ccache-restore
@@ -201,15 +201,15 @@ jobs:
         with:
           packages: build-essential ccache cmake curl mold ninja-build:ninja python3
 
-      - name: Restore/Save Prebuilt 3rdparty Dependencies
+      - name: Restore/Save 3rdparty Downloads
         uses: actions/cache@v4
         with:
           path: |
             3rdparty/inferlet
             3rdparty/stb_image
-          key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
+          key: 3rdparty-downloads-${{ runner.os }}-${{ hashFiles('cmake_ext/engines/Inferlet.cmake', 'cmake_ext/third_party/StbImage.cmake') }}
           restore-keys: |
-            3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
+            3rdparty-downloads-${{ runner.os }}-
 
       - name: Restore Sanitizer CCache
         uses: ./.github/actions/ccache-restore
