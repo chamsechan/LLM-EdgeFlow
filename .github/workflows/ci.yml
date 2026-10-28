@@ -116,7 +116,7 @@ jobs:
           test "$(uname -m)" = arm64
           python -m pip install cmake==3.28.4 ninja==1.11.1.1 clang-format==18.1.8 jsonschema==4.23.0
           xcrun --show-sdk-path
-      - name: Cache verified macOS dependencies
+      - name: Cache macOS dependencies
         uses: actions/cache@v4
         with:
           path: |
@@ -454,7 +454,7 @@ jobs:
       - name: Fetch and Verify Pinned Text and Vision Models
         run: ./scripts/fetch_real_test_models.sh --kite
 
-      - name: Download Verified Private Release and Configure kiteLLM
+      - name: Download Private Release and Configure kiteLLM
         env:
           GH_TOKEN: ${{ secrets.KITELLM_GITHUB_TOKEN }}
         run: |

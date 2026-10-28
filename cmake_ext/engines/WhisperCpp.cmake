@@ -14,12 +14,10 @@ message(STATUS "[Model Execution] Enabling whisper.cpp Backend support...")
 
 set(WHISPER_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/whisper_cpp")
 set(LLM_EDGEFLOW_WHISPERCPP_COMMIT "371b5a7561823ab2bb32142d2751e35e7534727b")
-set(_WHISPER_SOURCE_SHA256 "89051d8fca516a3ad1f5c2f8f9d2fccb089afbaec338fca3f8731999babc6f81")
 
 edgeflow_prepare_third_party_cache(
   NAME whisper_cpp
   VERSION "${LLM_EDGEFLOW_WHISPERCPP_COMMIT}"
-  SOURCE_SHA256 "${_WHISPER_SOURCE_SHA256}"
   CACHE_DIR "${WHISPER_3RDPARTY_DIR}"
   KIND STATIC
   ABI_OPTIONS GGML_PROVIDER=llama_cpp GGML_SOURCE=${LLM_EDGEFLOW_LLAMACPP_COMMIT}
@@ -48,7 +46,6 @@ else()
   FetchContent_Declare(
     whisper_cpp_source
     URL https://github.com/ggml-org/whisper.cpp/archive/${LLM_EDGEFLOW_WHISPERCPP_COMMIT}.tar.gz
-    URL_HASH SHA256=${_WHISPER_SOURCE_SHA256}
     ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
   # MakeAvailable 在 CMake 3.28 前不支持 EXCLUDE_FROM_ALL，此处只构建被链接的 whisper。

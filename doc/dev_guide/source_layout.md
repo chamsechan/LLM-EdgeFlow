@@ -50,7 +50,7 @@
 | 子目录 | 内容 |
 | :--- | :--- |
 | `engines/` | 推理运行时的依赖接入模块 |
-| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的校验下载、缓存身份与归档发布工具 |
+| `third_party/` | JSON、PCRE2、stb_image、GoogleTest 等通用依赖，以及引擎和通用依赖共用的暂存下载、缓存身份与归档发布工具 |
 | `support/` | 构建加速、Operator 壳选择和分层头文件视图 |
 | `toolchains/` | 在 `project()` 之前生效的编译器、sysroot 和搜索规则；当前提供中性的 GNU/Linux arm64 示例 |
 | `templates/` | SDK 导出符号脚本、Demo Profile 字段头等生成文件的输入模板 |
@@ -73,7 +73,7 @@ CMake 链接方继续使用 `llm_edgeflow::sdk`，脚本和测试通过目标路
 
 推理引擎的依赖接入统一放在 `engines/`，包括 ONNX Runtime、llama.cpp、Whisper、Inferlet 和 Kite。
 目录按运行时职责划分，不按作者、仓库公开性或接口来源划分；各模块只维护固定版本、上游选项
-和编译链接探针。校验下载、发布包导入、缓存身份与归档发布由
+和编译链接探针。暂存下载、发布包导入、缓存身份与归档发布由
 `third_party/ThirdPartyCacheMetadata.cmake` 共用。引擎模块把 Backend 的 SYSTEM 头目录、编译定义和
 链接目标分别追加到 `LLM_EDGEFLOW_BACKEND_INCLUDE_DIRS`、`LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS`、
 `LLM_EDGEFLOW_BACKEND_LIBRARIES`，由 `RuntimeGraph.cmake` 统一接入 Backend 实现；新增 Backend 不修改它。

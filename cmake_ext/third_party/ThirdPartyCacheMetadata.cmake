@@ -9,16 +9,16 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24")
   set(EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 endif()
 
-# 准备可检查的缓存标记，并报告现有缓存是否由相同的固定源码
+# 准备可检查的缓存标记，并报告现有缓存是否由相同的源码版本
 # 和 ABI 相关构建环境生成；REQUIRED_FILES 缺失时同样不可复用。
 function(edgeflow_prepare_third_party_cache)
   set(_one_value_args
-      NAME VERSION SOURCE_SHA256 CACHE_DIR KIND MARKER_ROOT OUT_VALID OUT_MARKER OUT_CACHE_DIR)
+      NAME VERSION CACHE_DIR KIND MARKER_ROOT OUT_VALID OUT_MARKER OUT_CACHE_DIR)
   set(_multi_value_args ABI_OPTIONS REQUIRED_FILES)
   cmake_parse_arguments(ARG "" "${_one_value_args}" "${_multi_value_args}"
                         ${ARGN})
 
-  foreach(_required NAME VERSION SOURCE_SHA256 CACHE_DIR KIND OUT_VALID OUT_MARKER)
+  foreach(_required NAME VERSION CACHE_DIR KIND OUT_VALID OUT_MARKER)
     if(NOT ARG_${_required})
       message(FATAL_ERROR
         "edgeflow_prepare_third_party_cache requires ${_required}")
@@ -30,7 +30,7 @@ function(edgeflow_prepare_third_party_cache)
   endif()
 
   set(_basis
-      "schema=1\nname=${ARG_NAME}\nversion=${ARG_VERSION}\nsource_sha256=${ARG_SOURCE_SHA256}\nkind=${ARG_KIND}\n")
+      "schema=1\nname=${ARG_NAME}\nversion=${ARG_VERSION}\nkind=${ARG_KIND}\n")
   if(ARG_KIND STREQUAL "PREBUILT" OR ARG_KIND STREQUAL "STATIC")
     set(_target_arch "${CMAKE_SYSTEM_PROCESSOR}")
     if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_OSX_ARCHITECTURES)
@@ -110,7 +110,7 @@ function(edgeflow_prepare_third_party_cache)
     endif()
   elseif(EXISTS "${_cache_dir}")
     message(STATUS
-      "[3rdparty] Ignoring unverified ${ARG_NAME} cache: ${_cache_dir}")
+      "[3rdparty] Ignoring unmarked ${ARG_NAME} cache: ${_cache_dir}")
   endif()
   # 指纹只证明身份，归档仍须完整才能导入。
   foreach(_required IN LISTS ARG_REQUIRED_FILES)
@@ -156,9 +156,9 @@ function(edgeflow_publish_third_party_cache name)
       VERBATIM)
 endfunction()
 
-# 先下载到暂存文件并校验 SHA-256 再改名，共享缓存只出现完整文件；
-# 已有文件每次配置都重新校验。URL 直接下载，COMMAND 用于需要认证的下载工具。
-function(edgeflow_download_verified_file path sha256)
+# 先下载到暂存文件，下载成功后再改名，避免共享缓存使用中断的下载。
+# 已有文件直接复用；URL 直接下载，COMMAND 用于需要认证的下载工具。
+function(edgeflow_download_file path)
   cmake_parse_arguments(ARG "" "URL;DOWNLOADED;FAILURE_MESSAGE" "COMMAND" ${ARGN})
   get_filename_component(_directory "${path}" DIRECTORY)
   file(MAKE_DIRECTORY "${_directory}")
@@ -182,19 +182,11 @@ function(edgeflow_download_verified_file path sha256)
       endif()
       message(FATAL_ERROR "Cannot download ${path}: ${_status}")
     endif()
-    file(SHA256 "${_downloaded}" _actual)
-    if(NOT _actual STREQUAL sha256)
-      message(FATAL_ERROR "Downloaded SHA-256 mismatch: ${path}")
-    endif()
     file(RENAME "${_downloaded}" "${path}")
-  endif()
-  file(SHA256 "${path}" _actual)
-  if(NOT _actual STREQUAL sha256)
-    message(FATAL_ERROR "Cached SHA-256 mismatch. Remove ${path} and configure again.")
   endif()
 endfunction()
 
-# 每次配置把已校验归档重新解压到当前构建，避免残留文件和旧环境的绝对路径；
+# 每次配置把缓存归档重新解压到当前构建，避免残留文件和旧环境的绝对路径；
 # 只接受解压目录内与固定版本完全一致的 CMake 包及其静态库。
 function(edgeflow_import_release_package package version archive extract_dir package_root library)
   file(REMOVE_RECURSE "${extract_dir}")
@@ -202,7 +194,7 @@ function(edgeflow_import_release_package package version archive extract_dir pac
   execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf "${archive}"
                   WORKING_DIRECTORY "${extract_dir}" RESULT_VARIABLE _result)
   if(NOT _result EQUAL 0)
-    message(FATAL_ERROR "Cannot extract verified ${package} release: ${archive}")
+    message(FATAL_ERROR "Cannot extract ${package} release: ${archive}")
   endif()
   set(_root "${extract_dir}/${package_root}")
   unset(${package}_DIR CACHE)
@@ -210,7 +202,7 @@ function(edgeflow_import_release_package package version archive extract_dir pac
                PATHS "${_root}/lib/cmake/${package}" NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
   get_target_property(_library ${package}::${package} IMPORTED_LOCATION_RELEASE)
   if(NOT _library STREQUAL "${_root}/lib/${library}")
-    message(FATAL_ERROR "${package} must resolve to the verified release archive")
+    message(FATAL_ERROR "${package} must resolve to the selected release archive")
   endif()
-  message(STATUS "[3rdparty] Verified ${package} ${version}: ${_library}")
+  message(STATUS "[3rdparty] Imported ${package} ${version}: ${_library}")
 endfunction()

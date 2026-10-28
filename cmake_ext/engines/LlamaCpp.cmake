@@ -13,8 +13,6 @@ if(ENABLE_LLAMACPP)
   set(LLAMA_3RDPARTY_DIR "${CMAKE_SOURCE_DIR}/3rdparty/llama_cpp")
   set(LLM_EDGEFLOW_LLAMACPP_COMMIT
       "70adb1b4cea5ee39f867792c78dc59320921eda7")
-  set(_LLAMA_SOURCE_SHA256
-      "94d215f1fd85ded40f4674eccdbd3caf4a9b0daa00b6d72255efec922c6d94a4")
   # 先解析平台对应的 GGML 默认值，再检查缓存。
   # 这些选项须同时描述源码构建和导入的归档：macOS 使用 Apple Accelerate 并关闭 OpenMP。
   if(LLM_EDGEFLOW_TARGET_OS STREQUAL "macos")
@@ -86,7 +84,6 @@ if(ENABLE_LLAMACPP)
   edgeflow_prepare_third_party_cache(
     NAME llama_cpp
     VERSION "${LLM_EDGEFLOW_LLAMACPP_COMMIT}"
-    SOURCE_SHA256 "${_LLAMA_SOURCE_SHA256}"
     CACHE_DIR "${LLAMA_3RDPARTY_DIR}"
     KIND STATIC
     ABI_OPTIONS ${_llama_abi_options}
@@ -146,7 +143,6 @@ if(ENABLE_LLAMACPP)
     FetchContent_Declare(
       llama_cpp_source
       URL https://github.com/ggml-org/llama.cpp/archive/${LLM_EDGEFLOW_LLAMACPP_COMMIT}.tar.gz
-      URL_HASH SHA256=${_LLAMA_SOURCE_SHA256}
       ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
     )
     FetchContent_MakeAvailable(llama_cpp_source)

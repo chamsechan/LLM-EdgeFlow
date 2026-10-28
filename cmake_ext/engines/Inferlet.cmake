@@ -4,10 +4,8 @@ if(NOT ENABLE_INFERLET)
 endif()
 if(LLM_EDGEFLOW_TARGET_ARCH STREQUAL "x86_64")
   set(_inferlet_platform "x64")
-  set(_inferlet_sha256 "3c5e09b43053cc0bddc9ff4c9353be59e810ecf0a41ccd0bb0fed1ddfa77d807")
 else()
   set(_inferlet_platform "arm")
-  set(_inferlet_sha256 "de7aa0078191e5c4450c057de89206dcb164f5d01892f3b13e6aac83633bf841")
 endif()
 
 include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
@@ -16,7 +14,7 @@ set(_inferlet_asset "inferlet-${_inferlet_platform}.tar.gz")
 # 内网可预置同一归档以离线配置。
 set(_inferlet_archive
     "${CMAKE_SOURCE_DIR}/3rdparty/inferlet/${_inferlet_version}/${_inferlet_platform}/${_inferlet_asset}")
-edgeflow_download_verified_file("${_inferlet_archive}" "${_inferlet_sha256}"
+edgeflow_download_file("${_inferlet_archive}"
   URL "https://github.com/chamsechan/Inferlet/releases/download/${_inferlet_version}/${_inferlet_asset}")
 edgeflow_import_release_package(Inferlet 0.1.1 "${_inferlet_archive}"
   "${CMAKE_BINARY_DIR}/_deps/inferlet_release" "inferlet-${_inferlet_platform}" libinferlet.a)

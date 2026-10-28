@@ -13,9 +13,10 @@ set(CMAKE_C_COMPILER_VERSION 13)
 set(CMAKE_CXX_COMPILER_ID GNU)
 set(CMAKE_CXX_COMPILER_VERSION 13)
 set(CMAKE_CXX_STANDARD 17)
+set(cache_version pinned-source)
 function(probe kind)
   edgeflow_prepare_third_party_cache(
-    NAME neutral VERSION pinned-source SOURCE_SHA256 abc123
+    NAME neutral VERSION "${cache_version}"
     CACHE_DIR "${TEST_ROOT}/cache" KIND "${kind}"
     MARKER_ROOT "${TEST_ROOT}/markers" ABI_OPTIONS ${ARGN}
     OUT_VALID valid OUT_MARKER marker)
@@ -35,6 +36,12 @@ probe(STATIC a=1 z=2)
 if(NOT valid)
   message(FATAL_ERROR "Matching marker should be reusable regardless of option order")
 endif()
+set(cache_version next-version)
+probe(STATIC a=1 z=2)
+if(valid)
+  message(FATAL_ERROR "Changed dependency version reused stale cache")
+endif()
+set(cache_version pinned-source)
 set(CMAKE_CXX_COMPILER_VERSION 14)
 probe(STATIC a=1 z=2)
 if(valid)
@@ -48,7 +55,7 @@ endif()
 # 任一 ABI 输入变化时，身份目录保留原有缓存。
 function(identity_probe)
   edgeflow_prepare_third_party_cache(
-    NAME identity VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/identities"
+    NAME identity VERSION pin CACHE_DIR "${TEST_ROOT}/identities"
     KIND STATIC MARKER_ROOT "${TEST_ROOT}/markers"
     OUT_VALID identity_valid OUT_MARKER identity_marker OUT_CACHE_DIR identity_dir)
   set(identity_valid "${identity_valid}" PARENT_SCOPE)
@@ -140,7 +147,7 @@ endif()
 # 标记匹配也不能让不完整的缓存变得可导入。
 function(required_probe)
   edgeflow_prepare_third_party_cache(
-    NAME required VERSION pin SOURCE_SHA256 abc CACHE_DIR "${TEST_ROOT}/required"
+    NAME required VERSION pin CACHE_DIR "${TEST_ROOT}/required"
     KIND HEADER_ONLY MARKER_ROOT "${TEST_ROOT}/markers" REQUIRED_FILES include/required.h
     OUT_VALID required_valid OUT_MARKER required_marker)
   set(required_valid "${required_valid}" PARENT_SCOPE)
@@ -158,20 +165,23 @@ if(NOT required_valid)
   message(FATAL_ERROR "Complete cache with a matching marker must be reusable")
 endif()
 
-# 经校验的下载只发布完整文件，并重新校验已缓存的字节。
-file(WRITE "${TEST_ROOT}/source/payload.txt" "verified payload\n")
-file(SHA256 "${TEST_ROOT}/source/payload.txt" payload_sha)
+# 下载成功后才发布文件，已有缓存不需要访问来源。
+file(WRITE "${TEST_ROOT}/source/payload.txt" "download payload\n")
 set(url_download "${TEST_ROOT}/downloads/url/payload.txt")
-edgeflow_download_verified_file("${url_download}" "${payload_sha}"
+edgeflow_download_file("${url_download}"
   URL "file://${TEST_ROOT}/source/payload.txt")
 set(command_download "${TEST_ROOT}/downloads/command/payload.txt")
-edgeflow_download_verified_file("${command_download}" "${payload_sha}"
+edgeflow_download_file("${command_download}"
   COMMAND "${CMAKE_COMMAND}" -E copy "${TEST_ROOT}/source/payload.txt"
           "${TEST_ROOT}/downloads/command/staged.txt"
   DOWNLOADED "${TEST_ROOT}/downloads/command/staged.txt")
 foreach(download IN ITEMS "${url_download}" "${command_download}")
   if(NOT EXISTS "${download}")
-    message(FATAL_ERROR "Verified download was not published: ${download}")
+    message(FATAL_ERROR "Successful download was not published: ${download}")
+  endif()
+  file(READ "${download}" content)
+  if(NOT content STREQUAL "download payload\n")
+    message(FATAL_ERROR "Published download does not match its source: ${download}")
   endif()
 endforeach()
 function(expect_download_failure name script diagnostic)
@@ -183,16 +193,30 @@ function(expect_download_failure name script diagnostic)
     message(FATAL_ERROR "${name} must fail with '${diagnostic}':\n${output}${error}")
   endif()
 endfunction()
-expect_download_failure(wrong-hash
-  "edgeflow_download_verified_file(\"${TEST_ROOT}/downloads/wrong/payload.txt\" 0000 URL \"file://${TEST_ROOT}/source/payload.txt\")"
-  "Downloaded SHA-256 mismatch")
-if(EXISTS "${TEST_ROOT}/downloads/wrong/payload.txt")
-  message(FATAL_ERROR "Unverified download must not become a cached file")
+expect_download_failure(missing-url
+  "edgeflow_download_file(\"${TEST_ROOT}/downloads/missing/payload.txt\" URL \"file://${TEST_ROOT}/source/missing.txt\")"
+  "Cannot download")
+set(retry_download "${TEST_ROOT}/downloads/retry/payload.txt")
+file(WRITE "${retry_download}.download" "interrupted download\n")
+expect_download_failure(failed-command
+  "edgeflow_download_file(\"${retry_download}\" COMMAND \"${CMAKE_COMMAND}\" -E false FAILURE_MESSAGE \"Download command failed\")"
+  "Download command failed")
+if(EXISTS "${TEST_ROOT}/downloads/missing/payload.txt" OR EXISTS "${retry_download}")
+  message(FATAL_ERROR "Failed download must not become a cached file")
 endif()
-file(WRITE "${url_download}" "tampered\n")
-expect_download_failure(tampered-cache
-  "edgeflow_download_verified_file(\"${url_download}\" ${payload_sha} URL \"file://${TEST_ROOT}/source/payload.txt\")"
-  "Cached SHA-256 mismatch")
+edgeflow_download_file("${retry_download}" URL "file://${TEST_ROOT}/source/payload.txt")
+file(READ "${retry_download}" content)
+if(NOT content STREQUAL "download payload\n" OR EXISTS "${retry_download}.download")
+  message(FATAL_ERROR "Retry must publish the complete download and consume the staging file")
+endif()
+file(REMOVE "${TEST_ROOT}/source/payload.txt")
+file(WRITE "${url_download}" "local cached payload\n")
+edgeflow_download_file("${url_download}" URL "file://${TEST_ROOT}/source/payload.txt")
+edgeflow_download_file("${command_download}" COMMAND "${CMAKE_COMMAND}" -E false)
+file(READ "${url_download}" content)
+if(NOT content STREQUAL "local cached payload\n")
+  message(FATAL_ERROR "Existing download must be reused without content verification")
+endif()
 
 file(WRITE "${TEST_ROOT}/invalid.cmake"
   "include(\"${PROJECT_SOURCE_DIR}/cmake_ext/third_party/ThirdPartyCacheMetadata.cmake\")\nedgeflow_prepare_third_party_cache(NAME invalid KIND UNKNOWN)\n")

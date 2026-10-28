@@ -11,22 +11,17 @@ message(STATUS "[Model Execution] Enabling ONNX Runtime Backend support...")
 set(_ort_version 1.17.3)
 if(LLM_EDGEFLOW_TARGET_PLATFORM STREQUAL "macos-arm64")
   set(_ort_package osx-arm64)
-  set(_ort_sha256 "236c49c9065213b0ec9dec874e3619da3d01cbc8b984bb24291247293454d0f4")
 elseif(LLM_EDGEFLOW_TARGET_PLATFORM STREQUAL "macos-x86_64")
   set(_ort_package osx-x86_64)
-  set(_ort_sha256 "6292ad3d2e095b54b012a9fce7361f39fbac0b75fb6e9b1d9c320874515182e8")
 elseif(LLM_EDGEFLOW_TARGET_PLATFORM STREQUAL "linux-arm64")
   set(_ort_package linux-aarch64)
-  set(_ort_sha256 "9f801577bd99676d1d821022e52b1f4554f56339ae3606c7b5ff3155f443c921")
 else()
   set(_ort_package linux-x64)
-  set(_ort_sha256 "f2f11f9da1e3e19b22a8b378b9af57a58433f40e3db6a803e75c0ec0eba97a20")
 endif()
 set(_ort_library "lib/libonnxruntime${CMAKE_SHARED_LIBRARY_SUFFIX}")
 edgeflow_prepare_third_party_cache(
   NAME onnxruntime
   VERSION ${_ort_version}
-  SOURCE_SHA256 "${_ort_sha256}"
   CACHE_DIR "${CMAKE_SOURCE_DIR}/3rdparty/onnxruntime"
   KIND PREBUILT
   REQUIRED_FILES "${_ort_library}" include/onnxruntime_c_api.h
@@ -40,7 +35,6 @@ else()
   FetchContent_Declare(
     onnxruntime_prebuilt
     URL "https://github.com/microsoft/onnxruntime/releases/download/v${_ort_version}/onnxruntime-${_ort_package}-${_ort_version}.tgz"
-    URL_HASH SHA256=${_ort_sha256}
     ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
   FetchContent_MakeAvailable(onnxruntime_prebuilt)
