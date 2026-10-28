@@ -55,7 +55,6 @@ COMMON_CMAKE_ARGS=(
   -DCMAKE_BUILD_TYPE=Debug
   -DENABLE_SANITIZERS=ON
   -DLLM_EDGEFLOW_SANITIZERS="${SANITIZERS}"
-  -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
 )
 # 优先复用已拉取的源码树。这样在受限/离线开发环境中 sanitizer 构建保持确定，
 # 在干净检出时仍保留 FetchContent 的正常下载行为。

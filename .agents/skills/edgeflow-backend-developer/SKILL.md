@@ -41,7 +41,7 @@ BatchPolicy 决定；测试后端仅支持 `kFixture`，`fixed_batch_size=0` 使
 - 源码放在 `src/engine/backends/<backend>/` 下，下次构建时自动编入
   **`edgeflow_model_execution_backends_objects`**。Models/Runtime 属于另一个 OBJECT，
   不共享 vendor 编译要求。
-- 依赖获取、版本 pin 和校验放 `cmake_ext/`；厂商头、`HAVE_*`、imported target 编译需求
+- 依赖获取和版本 pin 放 `cmake_ext/`；厂商头、`HAVE_*`、imported target 编译需求
   只以 `PRIVATE` 提供给 Backend OBJECT。最终 SDK/内部运行时通过 `LINK_ONLY` 保留
   必要传递链接，不把 vendor include 或宏扩散到上层。
 - 新增 vendor 时同步 `scripts/check_layer_dependencies.py` 的所属 Backend 规则、

@@ -75,10 +75,10 @@ jobs:
       - name: Run Unified Full Quality Gate with mold
         run: |
           ccache -z
+          export LDFLAGS=-fuse-ld=mold
           ./scripts/configure_build.sh "$PWD" "$PWD/build" dev-gate \
-            -DPython3_EXECUTABLE=/usr/bin/python3 -DLLM_EDGEFLOW_LINKER=mold
-          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_JOBS=4 \
-            ./scripts/run_all_tests.sh
+            -DPython3_EXECUTABLE=/usr/bin/python3
+          LLM_EDGEFLOW_JOBS=4 ./scripts/run_all_tests.sh
           ccache -s
 
       - name: Save CCache
@@ -97,7 +97,6 @@ jobs:
       actions: write
     env:
       LLM_EDGEFLOW_BUILD_PRESET: macos-arm64-cpu
-      LLM_EDGEFLOW_LINKER: system
       LLM_EDGEFLOW_JOBS: "3"
       CLANG_FORMAT: clang-format
       CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -225,7 +224,7 @@ jobs:
       - name: Run CI Runtime Sanitizer Suite
         run: |
           ccache -z
-          LLM_EDGEFLOW_LINKER=mold LLM_EDGEFLOW_SANITIZERS=address,undefined \
+          LDFLAGS=-fuse-ld=mold LLM_EDGEFLOW_SANITIZERS=address,undefined \
             ./scripts/run_sanitizers.sh --ci-runtime
           ccache -s
 
@@ -284,7 +283,7 @@ jobs:
       - name: Run Real Model and Public Profile
         run: |
           ccache -z
-          LLM_EDGEFLOW_LINKER=mold \
+          LDFLAGS=-fuse-ld=mold \
           CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache \
             ./scripts/run_real_model_e2e.sh
           ccache -s
@@ -345,7 +344,7 @@ jobs:
       - name: Run Real Whisper E2E and Public Profile
         run: |
           ccache -z
-          LLM_EDGEFLOW_LINKER=mold \
+          LDFLAGS=-fuse-ld=mold \
           CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache \
             ./scripts/run_real_model_e2e.sh --whisper
           ccache -s
@@ -428,8 +427,7 @@ jobs:
             echo "::error::Set KITELLM_GITHUB_TOKEN with read access to chamsechan/kiteLLM."
             exit 1
           fi
-          cmake --preset=kite-cpu -DENABLE_ONNXRUNTIME=ON \
-            -DLLM_EDGEFLOW_LINKER=mold \
+          LDFLAGS=-fuse-ld=mold cmake --preset=kite-cpu -DENABLE_ONNXRUNTIME=ON \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 

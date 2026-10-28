@@ -19,27 +19,6 @@ edgeflow_download_file("${_inferlet_archive}"
 edgeflow_import_release_package(Inferlet 0.1.1 "${_inferlet_archive}"
   "${CMAKE_BINARY_DIR}/_deps/inferlet_release" "inferlet-${_inferlet_platform}" libinferlet.a)
 
-include(CheckCXXSourceCompiles)
-include(CMakePushCheckState)
-cmake_push_check_state(RESET)
-set(CMAKE_REQUIRED_LIBRARIES Inferlet::Inferlet)
-unset(INFERLET_API_COMPATIBLE CACHE)
-check_cxx_source_compiles([[
-  #include <inferlet.h>
-  int main() {
-    inferlet_init();
-    void* parameters = inferlet_parameter_allocate();
-    inferlet_parameter_set_load_from_file_sync(parameters, 1);
-    void* model = inferlet_load_from_file("model.gguf", parameters);
-    inferlet_unload(model);
-    inferlet_parameter_deallocate(parameters);
-    inferlet_deinit();
-  }
-]] INFERLET_API_COMPATIBLE)
-cmake_pop_check_state()
-if(NOT INFERLET_API_COMPATIBLE)
-  message(FATAL_ERROR "Inferlet C API failed to compile/link; check toolchain and system runtime compatibility")
-endif()
 set(LLM_EDGEFLOW_HAS_INFERLET ON)
 list(APPEND LLM_EDGEFLOW_BACKEND_COMPILE_DEFINITIONS HAVE_INFERLET=1)
 list(APPEND LLM_EDGEFLOW_BACKEND_LIBRARIES Inferlet::Inferlet)

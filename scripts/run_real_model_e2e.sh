@@ -49,8 +49,7 @@ fi
 # 2. 编译独立的真实模型测试套件
 echo ">>> 正在编译 test_real_models_e2e..."
 "${PROJECT_ROOT}/scripts/configure_build.sh" "${PROJECT_ROOT}" "${BUILD_DIR}" minimal "${CMAKE_BACKEND_ARGS[@]}" \
-  -DENABLE_REAL_MODEL_TESTS=ON \
-  -DLLM_EDGEFLOW_LINKER="${LLM_EDGEFLOW_LINKER:-auto}"
+  -DENABLE_REAL_MODEL_TESTS=ON
 cmake --build "${BUILD_DIR}" --target test_real_models_e2e alg_demo \
   -j"${LLM_EDGEFLOW_JOBS:-4}"
 

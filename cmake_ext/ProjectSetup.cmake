@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-# 第三方源码依赖统一构建为静态归档，与缓存导入规则一致；alg_sdk 显式声明 SHARED。
+# 第三方源码依赖统一构建为静态归档并链接进 alg_sdk；alg_sdk 显式声明 SHARED。
 # 使用缓存项，旧 CMake 策略下上游的 option(BUILD_SHARED_LIBS) 也不会改回共享库。
 if(BUILD_SHARED_LIBS)
   message(FATAL_ERROR "BUILD_SHARED_LIBS=ON is unsupported; third-party dependencies are linked statically")
@@ -18,7 +18,6 @@ set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
   message(FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
 endif()
-include(cmake_ext/support/BuildAcceleration.cmake)
 add_compile_options(-Wall -Wextra)
 
 # 与固定 GGML 上游的默认值一致，在配置任何依赖前确定。
@@ -57,13 +56,6 @@ if(LLM_EDGEFLOW_TARGET_OS STREQUAL "macos")
       if(NOT _edgeflow_sdk_result EQUAL 0)
         message(FATAL_ERROR "Cannot resolve the selected macOS SDK: ${CMAKE_OSX_SYSROOT}")
       endif()
-    endif()
-    set(LLM_EDGEFLOW_APPLE_SDK_PATH "${_edgeflow_sdk_path}")
-    execute_process(COMMAND xcrun --sdk "${_edgeflow_sdk_path}" --show-sdk-version
-        OUTPUT_VARIABLE LLM_EDGEFLOW_APPLE_SDK_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _edgeflow_sdk_result)
-    if(NOT _edgeflow_sdk_result EQUAL 0)
-      message(FATAL_ERROR "Cannot identify the selected macOS SDK: ${_edgeflow_sdk_path}")
     endif()
     list(APPEND edgeflow_cxx_platform_flags -isysroot "${_edgeflow_sdk_path}")
   endif()

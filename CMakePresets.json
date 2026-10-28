@@ -54,8 +54,7 @@
         "LLM_EDGEFLOW_EXPECTED_PLATFORM": "macos-arm64",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
         "CMAKE_OSX_SYSROOT": "macosx",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
-        "LLM_EDGEFLOW_LINKER": "system"
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
       },
       "vendor": {
         "llm-edgeflow/selection": {
@@ -70,8 +69,7 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_ext/toolchains/linux-arm64.cmake",
         "LLM_EDGEFLOW_EXPECTED_PLATFORM": "linux-arm64",
-        "BUILD_TESTING": "OFF",
-        "LLM_EDGEFLOW_LINKER": "system"
+        "BUILD_TESTING": "OFF"
       }
     },
     {
