@@ -68,6 +68,11 @@ if [[ -d "${PROJECT_ROOT}/build/_deps/googletest-src" ]]; then
     -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="${PROJECT_ROOT}/build/_deps/googletest-src"
   )
 fi
+if [[ -d "${PROJECT_ROOT}/build/_deps/pcre2-src" ]]; then
+  COMMON_CMAKE_ARGS+=(
+    -DFETCHCONTENT_SOURCE_DIR_PCRE2="${PROJECT_ROOT}/build/_deps/pcre2-src"
+  )
+fi
 PRESET="${LLM_EDGEFLOW_BUILD_PRESET:-dev-gate}"
 if [[ "${MODE}" == "fast" ]]; then
   PRESET=minimal
