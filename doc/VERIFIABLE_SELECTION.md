@@ -127,6 +127,8 @@ sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-
 
 CMake 缓存包含绝对路径。如果更换构建目录，在新目录重新配置。
 保留 `3rdparty/` 中的发布归档可减少重复下载；其余依赖在各构建目录的 `_deps/` 中构建。
+链接器和编译缓存由环境选择，CMake 不探测：例如首次配置前设置 `LDFLAGS=-fuse-ld=mold`，
+或 `CMAKE_C_COMPILER_LAUNCHER=ccache` 与 `CMAKE_CXX_COMPILER_LAUNCHER=ccache`。
 
 ### 跨平台构建
 
