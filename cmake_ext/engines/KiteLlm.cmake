@@ -5,7 +5,7 @@ if(NOT ENABLE_KITELLM)
   return()
 endif()
 
-include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyDownload.cmake)
 
 set(_kite_release "v0.1.0")
 if(LLM_EDGEFLOW_TARGET_ARCH STREQUAL "x86_64")

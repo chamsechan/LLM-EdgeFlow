@@ -8,7 +8,7 @@ else()
   set(_inferlet_platform "arm")
 endif()
 
-include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
+include(cmake_ext/third_party/ThirdPartyDownload.cmake)
 set(_inferlet_version "v0.1.1")
 set(_inferlet_asset "inferlet-${_inferlet_platform}.tar.gz")
 # 内网可预置同一归档以离线配置。
