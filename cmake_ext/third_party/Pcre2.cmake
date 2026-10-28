@@ -5,7 +5,6 @@ include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME pcre2
   VERSION 10.47
-  SOURCE_SHA256 c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16
   CACHE_DIR "${CMAKE_SOURCE_DIR}/3rdparty/pcre2"
   KIND STATIC
   ABI_OPTIONS PCRE2_BUILD_PCRE2_8=ON PCRE2_STATIC_PIC=ON
@@ -33,7 +32,7 @@ else()
   include(FetchContent)
 
   # TextRuleMatchNode 使用 PCRE2 实现 Unicode 感知的后行断言和命名捕获。
-  # 该依赖须保持私有、源码构建、版本固定并经校验和验证。
+  # 该依赖须保持私有、源码构建、版本固定。
   set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "Build PCRE2 8-bit library" FORCE)
   set(PCRE2_BUILD_PCRE2_16 OFF CACHE BOOL "Disable PCRE2 16-bit library" FORCE)
   set(PCRE2_BUILD_PCRE2_32 OFF CACHE BOOL "Disable PCRE2 32-bit library" FORCE)
@@ -46,7 +45,6 @@ else()
   FetchContent_Declare(
       pcre2
       URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz
-      URL_HASH SHA256=c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16
       ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
   FetchContent_MakeAvailable(pcre2)

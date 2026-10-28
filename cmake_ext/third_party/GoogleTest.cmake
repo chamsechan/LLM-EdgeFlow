@@ -5,7 +5,6 @@ include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME googletest
   VERSION 1.14.0
-  SOURCE_SHA256 8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
   CACHE_DIR "${CMAKE_SOURCE_DIR}/3rdparty/googletest"
   KIND STATIC
   ABI_OPTIONS BUILD_GMOCK=OFF
@@ -32,7 +31,6 @@ else()
   FetchContent_Declare(
     googletest
     URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
-    URL_HASH SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
     ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
   set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)

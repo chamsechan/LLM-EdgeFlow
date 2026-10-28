@@ -126,7 +126,7 @@ sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-
 这些入口不会依赖另一次构建遗留的 Backend 开关。
 
 CMake 缓存包含绝对路径。如果更换构建目录，在新目录重新配置。
-保留已校验的 `3rdparty/` 缓存可减少重复下载。
+保留版本和构建身份匹配的 `3rdparty/` 缓存可减少重复下载。
 
 ### 跨平台构建
 
@@ -193,10 +193,10 @@ python3 tools/verify_selection.py check \
 ### Inferlet CPU 验证
 
 `inferlet-cpu` 使用固定版本 Inferlet v0.1.1 CPU 静态包，支持 Linux x86_64/aarch64。
-依赖的 URL、SHA-256 和编译隔离由 [Inferlet 构建模块](../cmake_ext/engines/Inferlet.cmake)
+依赖的版本、URL 和编译隔离由 [Inferlet 构建模块](../cmake_ext/engines/Inferlet.cmake)
 维护。首次配置自动下载；离线环境可预置同一发布归档到
 `3rdparty/inferlet/v0.1.1/x64/inferlet-x64.tar.gz` 或对应的 `arm/inferlet-arm.tar.gz`，
-仍须通过同一 SHA 校验。该包包含自己的 llama.cpp/ggml，不能与 `ENABLE_LLAMACPP`、
+配置时直接复用已有归档，不校验内容 hash。该包包含自己的 llama.cpp/ggml，不能与 `ENABLE_LLAMACPP`、
 `ENABLE_WHISPERCPP` 或 `ENABLE_KITELLM` 同时启用。
 
 复用现有实体抽取 I/O、节点和 Model，新增样例只选择 Inferlet 及其运行配置：

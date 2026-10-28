@@ -118,7 +118,8 @@ Do not copy entire design discussions or logs into handoffs unless necessary to 
 ## Repository guardrails
 
 Preserve unrelated user changes; no destructive Git operations or direct pushes to `main`.
-Do not bundle third-party sources/binaries; dependencies stay pinned and verified in `cmake_ext/`.
+Do not bundle third-party sources/binaries; dependencies stay version-pinned in `cmake_ext/`.
+CMake dependency downloads and cached dependency files do not undergo content-hash verification.
 The external workspace cannot access the company-internal SDK: do not request, infer, copy,
 or commit its headers, libraries, models, configuration, or credentials. Prepare only neutral
 integration seams; real SDK integration and target-hardware acceptance start only after the

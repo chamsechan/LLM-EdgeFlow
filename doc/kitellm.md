@@ -27,21 +27,21 @@ CI 使用仓库 Actions secret `KITELLM_GITHUB_TOKEN`，仅在配置下载步骤
 轮换时在仓库 Settings → Secrets and variables → Actions 更新
 `KITELLM_GITHUB_TOKEN`。新建凭据只需选择 kiteLLM 仓库并授予 Contents 读取权限。
 
-`kiteLLM Private Release & Real GGUF` 独立任务在 Linux x64 上下载校验发布包，构建
+`kiteLLM Private Release & Real GGUF` 独立任务在 Linux x64 上下载发布包，构建
 kiteLLM + ONNX，确认 Catalog 注册并运行带 `kite` 标签的 CTest。随后通过 Demo 分别执行
 真实文本、生成向量问答与视觉方案。缺少或失效的凭据会使任务明确失败，结果写入验收记录。
 外部 fork PR 和 Dependabot 跳过此私有任务，
 其余默认 CI 保持执行。跳过状态在验收记录中保留。私有库、头文件和链接产物不上传为
 公开 artifact，也不进入 Actions cache。模型缓存包含公开 GGUF、ONNX 权重和 tokenizer。
 
-支持 Linux x86_64 与 aarch64。版本、平台包和 SHA-256 固定在
+支持 Linux x86_64 与 aarch64。版本和平台包固定在
 [`cmake_ext/engines/KiteLlm.cmake`](../cmake_ext/engines/KiteLlm.cmake)。上游 v0.1.0 对应提交
-`5e58820f39919fce2046e2fd703c62601a5df59b`。修改发布包后即使 tag 不变，校验也会拒绝。
+`5e58820f39919fce2046e2fd703c62601a5df59b`。下载和复用缓存时不校验内容 hash。
 
-归档缓存位于 `3rdparty/kite_llm/v0.1.0/<x64|arm>/`，每次配置都校验归档 SHA-256，
-再解包到当前 build 的 `_deps/kite_llm_release/`。已有完整缓存时不调用 gh、不访问网络。
-如果缓存损坏，工具会报错。删除报错指定的归档，再重新配置。
-工具会重新下载归档。Git 忽略这些第三方文件。
+归档缓存位于 `3rdparty/kite_llm/v0.1.0/<x64|arm>/`，每次配置解包到当前 build 的
+`_deps/kite_llm_release/`。已有归档时不调用 gh、不访问网络。
+如果解包或包导入失败，可删除对应归档再重新配置，工具会重新下载。
+Git 忽略这些第三方文件。
 
 ## 使用与限制
 

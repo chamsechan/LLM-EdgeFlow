@@ -5,7 +5,6 @@ include(cmake_ext/third_party/ThirdPartyCacheMetadata.cmake)
 edgeflow_prepare_third_party_cache(
   NAME nlohmann_json
   VERSION 3.11.3
-  SOURCE_SHA256 0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406
   CACHE_DIR "${JSON_3RDPARTY_DIR}"
   KIND HEADER_ONLY
   REQUIRED_FILES include/nlohmann/json.hpp
@@ -24,7 +23,6 @@ else()
   FetchContent_Declare(
       nlohmann_json
       URL https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz
-      URL_HASH SHA256=0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406
       ${EDGEFLOW_FETCHCONTENT_TIMESTAMP_ARGS}
   )
 

@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 LLM-EdgeFlow uses the following third-party components. Sources are obtained
-by checksum-verified CMake dependency declarations and are not vendored in
+by version-pinned CMake dependency declarations and are not vendored in
 this repository.
 
 ## nlohmann/json 3.11.3
