@@ -57,10 +57,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            3rdparty/googletest
-            3rdparty/pcre2
             3rdparty/inferlet
-            3rdparty/nlohmann_json
             3rdparty/stb_image
           key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
@@ -97,11 +94,20 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      actions: write
     env:
       LLM_EDGEFLOW_BUILD_PRESET: macos-arm64-cpu
       LLM_EDGEFLOW_LINKER: system
       LLM_EDGEFLOW_JOBS: "3"
       CLANG_FORMAT: clang-format
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "2G"
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -116,20 +122,23 @@ jobs:
           test "$(uname -m)" = arm64
           python -m pip install cmake==3.28.4 ninja==1.11.1.1 clang-format==18.1.8 jsonschema==4.23.0
           xcrun --show-sdk-path
-      - name: Cache macOS dependencies
-        uses: actions/cache@v4
+          brew install ccache
+      - name: Restore CCache
+        uses: ./.github/actions/ccache-restore
         with:
-          path: |
-            3rdparty/googletest
-            3rdparty/pcre2
-            3rdparty/llama_cpp
-            3rdparty/whisper_cpp
-            3rdparty/onnxruntime
-            3rdparty/nlohmann_json
-            3rdparty/stb_image
-          key: 3rdparty-macos-arm64-${{ hashFiles('cmake_ext/**/*.cmake', 'CMakePresets.json') }}
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ github.ref }}-
+            ccache-${{ runner.os }}-
       - name: Run the canonical gate including dylib exports
         run: ./scripts/run_all_tests.sh
+      - name: Save CCache
+        uses: ./.github/actions/ccache-save
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ runner.os }}-${{ github.ref }}-${{ github.sha }}
+          prefix: ccache-${{ runner.os }}-${{ github.ref }}-
       - name: Cache pinned GGUF
         uses: actions/cache@v4
         with:
@@ -198,7 +207,6 @@ jobs:
         with:
           path: |
             3rdparty/inferlet
-            3rdparty/nlohmann_json
             3rdparty/stb_image
           key: 3rdparty-prebuilt-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
           restore-keys: |
@@ -255,20 +263,6 @@ jobs:
         uses: ./.github/actions/setup-build-env
         with:
           packages: build-essential ccache cmake curl mold ninja-build:ninja python3
-
-      - name: Restore 3rdparty Dependencies
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            3rdparty/googletest
-            3rdparty/pcre2
-            3rdparty/llama_cpp
-            3rdparty/onnxruntime
-            3rdparty/nlohmann_json
-            3rdparty/stb_image
-          key: 3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
-          restore-keys: |
-            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       # 先回退到本作业的 main 快照，再回退到默认门禁那份配置不同的缓存。
       - name: Restore CCache
@@ -329,21 +323,6 @@ jobs:
         uses: ./.github/actions/setup-build-env
         with:
           packages: build-essential ccache cmake curl mold ninja-build:ninja python3
-
-      - name: Restore/Save Whisper 3rdparty Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            3rdparty/googletest
-            3rdparty/pcre2
-            3rdparty/llama_cpp
-            3rdparty/whisper_cpp
-            3rdparty/nlohmann_json
-            3rdparty/stb_image
-          key: 3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
-          restore-keys: |
-            3rdparty-whisper-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
-            3rdparty-release-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore CCache
         uses: ./.github/actions/ccache-restore
@@ -413,19 +392,6 @@ jobs:
         uses: ./.github/actions/setup-build-env
         with:
           packages: build-essential ccache cmake curl gh libgomp1 mold ninja-build:ninja python3
-
-      - name: Restore/Save Open-Source 3rdparty Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            3rdparty/googletest
-            3rdparty/pcre2
-            3rdparty/onnxruntime
-            3rdparty/nlohmann_json
-            3rdparty/stb_image
-          key: 3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-${{ hashFiles('cmake_ext/**/*.cmake') }}
-          restore-keys: |
-            3rdparty-kite-v1-${{ runner.os }}-${{ env.TOOLCHAIN_ID }}-
 
       - name: Restore Kite CCache
         uses: ./.github/actions/ccache-restore

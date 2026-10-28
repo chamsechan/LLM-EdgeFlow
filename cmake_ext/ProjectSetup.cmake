@@ -21,7 +21,7 @@ endif()
 include(cmake_ext/support/BuildAcceleration.cmake)
 add_compile_options(-Wall -Wextra)
 
-# 与固定 GGML 上游的默认值一致，在任何依赖计算缓存身份前确定。
+# 与固定 GGML 上游的默认值一致，在配置任何依赖前确定。
 if(ENABLE_LLAMACPP AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()

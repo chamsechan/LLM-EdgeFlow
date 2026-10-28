@@ -126,7 +126,7 @@ sanitizer 的 `--fast` 复用 `minimal`，`--full` / `--ci-runtime` 复用 `dev-
 这些入口不会依赖另一次构建遗留的 Backend 开关。
 
 CMake 缓存包含绝对路径。如果更换构建目录，在新目录重新配置。
-保留版本和构建身份匹配的 `3rdparty/` 缓存可减少重复下载。
+保留 `3rdparty/` 中的发布归档可减少重复下载；其余依赖在各构建目录的 `_deps/` 中构建。
 
 ### 跨平台构建
 
@@ -146,7 +146,7 @@ cmake --build build/variants/macos-arm64-cpu --parallel 3
 ONNX Runtime、llama.cpp、Whisper CPU。Mac 默认使用 Apple Accelerate、关闭 OpenMP 和 Metal；
 Inferlet/Kite 的现有包仅用于 Linux。`GGML_CPU_ARM_ARCH` 默认留空，使用目标编译器默认指令集，
 设备预设可显式覆盖；不使用宿主 `-march=native`。
-三方缓存按目标平台、工具链和编译参数隔离，Linux arm64 与 macOS arm64 不共享库产物。
+源码依赖在各构建目录内编译，Linux arm64 与 macOS arm64 不共享库产物。
 最低部署版本可用 `-DCMAKE_OSX_DEPLOYMENT_TARGET=<版本>` 覆盖，仍须满足所选依赖要求。
 
 完整开发门禁使用同一入口（还需 clang-format 18、Python `jsonschema`、Java 和下载程序）：
