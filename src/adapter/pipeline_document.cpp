@@ -14,18 +14,11 @@ bool CheckObject(const nlohmann::json& value, const nlohmann::json& shape,
     return false;
   };
   if (!value.is_object()) return fail(path, "Expected an object");
-  for (const auto& [field, ignored] : value.items()) {
-    if (!json_structure::AllowsProperty(shape, field))
-      return fail(path == "/" ? "/" + EscapeJsonPointer(field)
-                              : path + "/" + EscapeJsonPointer(field),
-                  "Unknown field");
-  }
-  for (const auto& field : shape.value("required", nlohmann::json::array())) {
-    if (!value.contains(field.get<std::string>()))
-      return fail(path == "/" ? "/" + field.get<std::string>()
-                              : path + "/" + field.get<std::string>(),
-                  "Missing required field");
-  }
+  const auto prefix = path == "/" ? "/" : path + "/";
+  if (auto field = json_structure::FindUnknownProperty(value, shape))
+    return fail(prefix + EscapeJsonPointer(*field), "Unknown field");
+  if (auto field = json_structure::FindMissingProperty(value, shape))
+    return fail(prefix + EscapeJsonPointer(*field), "Missing required field");
   return true;
 }
 }  // namespace

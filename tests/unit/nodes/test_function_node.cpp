@@ -14,9 +14,11 @@
 #include <vector>
 
 #include "core/alg_context.h"
+#include "core/pipeline_catalog.h"
 #include "core/session_context.h"
 #include "core/validated_node_plan.h"
 #include "nodes/authoring.h"
+#include "tests/support/scoped_allocation_failure.h"
 
 namespace llm_edgeflow {
 namespace {
@@ -27,6 +29,10 @@ struct TextInputs {
   const TextBatch* text = nullptr;
   const TextBatch* extra = nullptr;
   const TextBatch* fallback = nullptr;
+};
+
+struct Outputs {
+  TextBatch answer, shadow;
 };
 
 ResolvedPortBinding TextPort(std::string name, std::string key,
@@ -47,59 +53,143 @@ ValidatedNodePlan TextPlan(nlohmann::json params = nlohmann::json::object()) {
 }
 
 TEST(AuthorNodeTest, OutputDeclarationsRejectAliasingAndInvalidAnchors) {
-  struct Outputs {
-    TextBatch first;
-    TextBatch second;
-  };
-  EXPECT_THROW((OutputsOf<Outputs>{Produced("same", &Outputs::first, "text"),
-                                   Produced("same", &Outputs::second, "text")}),
+  EXPECT_THROW((OutputsOf<Outputs>{Produced("same", &Outputs::answer, "text"),
+                                   Produced("same", &Outputs::shadow, "text")}),
                std::invalid_argument);
-  EXPECT_THROW((OutputsOf<Outputs>{Produced("one", &Outputs::first, "text"),
-                                   Produced("two", &Outputs::first, "text")}),
+  EXPECT_THROW((OutputsOf<Outputs>{Produced("one", &Outputs::answer, "text"),
+                                   Produced("two", &Outputs::answer, "text")}),
                std::invalid_argument);
-  EXPECT_THROW(Produced("one", &Outputs::first, ""), std::invalid_argument);
+  EXPECT_THROW(Produced("one", &Outputs::answer, ""), std::invalid_argument);
   auto inputs = InputsOf<TextInputs>({Required("text", &TextInputs::text)});
-  auto output = OutputsOf<Outputs>{Produced("one", &Outputs::first, "missing")};
+  auto output =
+      OutputsOf<Outputs>{Produced("one", &Outputs::answer, "missing")};
   auto run = [](const TextInputs&) { return NodeResult<Outputs>::Success({}); };
   EXPECT_THROW(MakeNodeSpec(inputs, output, run), std::invalid_argument);
 }
 
+TEST(AuthorNodeTest,
+     DeclarationAssignmentCommitsWholeValuesOrKeepsTheOriginal) {
+  using Json = nlohmann::json;
+  auto check = [](const auto& original, const auto& replacement, auto read) {
+    const auto before = read(original), after = read(replacement);
+    for (int allocation = 0; allocation < 256; ++allocation) {
+      SCOPED_TRACE(allocation);
+      auto target = original;
+      bool failed = false;
+      {
+        test_support::ScopedAllocationFailure fault(allocation);
+        try {
+          target = replacement;
+        } catch (const std::bad_alloc&) {
+          failed = true;
+        }
+      }
+      EXPECT_EQ(read(target), failed ? before : after);
+      if (!failed) {
+        EXPECT_GT(allocation, 0);
+        return;
+      }
+    }
+    FAIL() << "Assignment never completed";
+  };
+  struct Params {
+    int first{}, second{}, prepared{};
+  };
+  struct Models {
+    LlmCall first, second;
+  };
+  auto make = [](bool replacement) {
+    const std::string anchor = replacement ? "extra" : "text";
+    auto params = Parameters<Params>{
+        Field(replacement ? "new_first" : "first",
+              replacement ? &Params::second : &Params::first)
+            .Default(1),
+        Field("second", replacement ? &Params::first : &Params::second)
+            .Default(2)};
+    params.Prepare([replacement](Params* p, std::string*) {
+      p->prepared = p->first + (replacement ? 20 : 10);
+      return true;
+    });
+    return MakeNodeSpec(
+        InputsOf<TextInputs>{Required(anchor, &TextInputs::text),
+                             Optional("fallback", &TextInputs::fallback)},
+        OutputsOf<Outputs>{Produced(replacement ? "new_answer" : "answer",
+                                    &Outputs::answer, anchor),
+                           Produced("second_answer", &Outputs::shadow, anchor)},
+        std::move(params),
+        ModelsOf<Models>{Model(replacement ? "new_first" : "first",
+                               "bind_first", &Models::first),
+                         Model("second", "bind_second", &Models::second)},
+        +[](const TextInputs& input, const Params&, const Models&) {
+          return NodeResult<Outputs>::Success({*input.text, *input.text});
+        });
+  };
+  auto original = make(false), replacement = make(true);
+  auto ports = [](const auto& declaration) {
+    Json names = Json::array();
+    for (const auto& port : declaration.ToPortDefinitions())
+      names.push_back(port.logical_name);
+    return names;
+  };
+  check(original.Inputs(), replacement.Inputs(), ports);
+  check(original.Output(), replacement.Output(), ports);
+  check(original.Models(), replacement.Models(), [](const auto& models) {
+    Json names = Json::array();
+    for (const auto& slot : models.Bindings())
+      names.push_back(slot->SlotName());
+    return names;
+  });
+  auto read_params = [](const auto& params) {
+    const auto value = params.Parse(Json::object());
+    EXPECT_TRUE(value);
+    return value ? Json::array({params.Fields().empty()
+                                    ? ""
+                                    : params.Fields().front().name,
+                                value->first, value->second, value->prepared})
+                 : Json();
+  };
+  check(original.ParametersSpec(), replacement.ParametersSpec(), read_params);
+  check(ParameterSet(original.ParametersSpec()),
+        ParameterSet(replacement.ParametersSpec()),
+        [&](const ParameterSet& set) {
+          std::shared_ptr<const ParameterValues> values;
+          if (!set.Parse(Json::object(), &values)) return Json();
+          const auto& p = values->Get<Params>();
+          return Json::array(
+              {set.Fields().empty() ? "" : set.Fields().front().name, p.first,
+               p.second, p.prepared});
+        });
+  check(original, replacement, [&](const auto& spec) {
+    return Json::array(
+        {PipelineCatalog::NodeToJson(spec.BuildDefinition("copy")),
+         read_params(spec.ParametersSpec())});
+  });
+}
+
 TEST(AuthorNodeTest, PopulationDistinguishesConnectionsFromRequestValues) {
-  enum class Value { kMissing, kText, kEmpty, kWrongType };
+  enum class Value { kUnconnected, kMissing, kText, kEmpty, kWrongType };
   struct Case {
-    const char* name;
-    Value required;
-    bool connect_extra;
-    Value extra;
-    bool connect_fallback;
-    Value fallback;
-    bool succeeds;
-    const char* seen_extra;
-    const char* seen_fallback;
+    Value required, extra, fallback;
     const char* error;
   };
-  const std::vector<Case> cases{
-      {"unconnected optional ignores same logical key", Value::kText, false,
-       Value::kText, false, Value::kText, true, "absent", "absent", ""},
-      {"missing required value", Value::kMissing, false, Value::kMissing, false,
-       Value::kMissing, false, "", "", "Missing required input"},
-      {"wrong required type", Value::kWrongType, false, Value::kMissing, false,
-       Value::kMissing, false, "", "", "type mismatch"},
-      {"connected Optional needs a value", Value::kText, true, Value::kMissing,
-       false, Value::kMissing, false, "", "", "Missing required input"},
-      {"connected Optional receives value", Value::kText, true, Value::kText,
-       false, Value::kMissing, true, "red", "absent", ""},
-      {"OptionalValue permits missing value", Value::kText, false,
-       Value::kMissing, true, Value::kMissing, true, "absent", "absent", ""},
-      {"OptionalValue receives value", Value::kText, false, Value::kMissing,
-       true, Value::kText, true, "absent", "red", ""},
-      {"OptionalValue rejects wrong type", Value::kText, false, Value::kMissing,
-       true, Value::kWrongType, false, "", "", "type mismatch"},
-      {"present empty required value still runs", Value::kEmpty, false,
-       Value::kMissing, false, Value::kMissing, true, "absent", "absent", ""},
-  };
+  const Case cases[] = {
+      {Value::kText, Value::kUnconnected, Value::kUnconnected, ""},
+      {Value::kMissing, Value::kUnconnected, Value::kUnconnected,
+       "Missing required input"},
+      {Value::kWrongType, Value::kUnconnected, Value::kUnconnected,
+       "type mismatch"},
+      {Value::kText, Value::kMissing, Value::kUnconnected,
+       "Missing required input"},
+      {Value::kText, Value::kText, Value::kUnconnected, ""},
+      {Value::kText, Value::kUnconnected, Value::kMissing, ""},
+      {Value::kText, Value::kUnconnected, Value::kText, ""},
+      {Value::kText, Value::kUnconnected, Value::kWrongType, "type mismatch"},
+      {Value::kEmpty, Value::kUnconnected, Value::kUnconnected, ""}};
   for (const auto& row : cases) {
-    SCOPED_TRACE(row.name);
+    SCOPED_TRACE(::testing::Message() << static_cast<int>(row.required) << ","
+                                      << static_cast<int>(row.extra) << ","
+                                      << static_cast<int>(row.fallback));
+    const bool succeeds = *row.error == '\0';
     SessionContext session;
     int calls = 0;
     std::string extra, fallback;
@@ -117,27 +207,30 @@ TEST(AuthorNodeTest, PopulationDistinguishesConnectionsFromRequestValues) {
         });
     AuthorNode<decltype(spec)> node("population", std::move(spec));
     auto plan = TextPlan();
-    if (row.connect_extra)
+    if ((row.extra != Value::kUnconnected))
       plan.ports.push_back(TextPort("extra", "request.extra"));
-    if (row.connect_fallback)
+    if ((row.fallback != Value::kUnconnected))
       plan.ports.push_back(TextPort("fallback", "request.fallback"));
     ASSERT_TRUE(node.Init({&plan, &session, nullptr}));
     AlgContext context;
     auto publish = [&](const char* key, Value value) {
-      if (value == Value::kText) context.Publish(key, kSample);
+      if (value == Value::kText || value == Value::kUnconnected)
+        context.Publish(key, kSample);
       if (value == Value::kEmpty) context.Publish(key, TextBatch{});
       if (value == Value::kWrongType)
         context.Publish(key, Int32Batch{{41, 6, 7}});
     };
     publish("request.text", row.required);
-    publish(row.connect_extra ? "request.extra" : "extra", row.extra);
-    publish(row.connect_fallback ? "request.fallback" : "fallback",
-            row.fallback);
-    EXPECT_EQ(node.Process(&context), row.succeeds ? 0 : error::kMissingInput);
-    EXPECT_EQ(calls, row.succeeds ? 1 : 0);
-    if (row.succeeds) {
-      EXPECT_EQ(extra, row.seen_extra);
-      EXPECT_EQ(fallback, row.seen_fallback);
+    publish((row.extra != Value::kUnconnected) ? "request.extra" : "extra",
+            row.extra);
+    publish(
+        (row.fallback != Value::kUnconnected) ? "request.fallback" : "fallback",
+        row.fallback);
+    EXPECT_EQ(node.Process(&context), succeeds ? 0 : error::kMissingInput);
+    EXPECT_EQ(calls, succeeds ? 1 : 0);
+    if (succeeds) {
+      EXPECT_EQ(extra, row.extra == Value::kText ? "red" : "absent");
+      EXPECT_EQ(fallback, row.fallback == Value::kText ? "red" : "absent");
       const auto* output = context.Read<TextBatch>("result.answer");
       ASSERT_NE(output, nullptr);
       EXPECT_EQ(output->size(), row.required == Value::kEmpty ? 0U : 2U);
@@ -184,10 +277,6 @@ TEST(AuthorNodeTest, InitRejectsAbsentPrerequisitesAndIncompatiblePorts) {
 
 TEST(AuthorNodeTest, AllDeclaredOutputsAreValidatedBeforeAnyPublication) {
   enum class Fault { kNone, kFailure, kExplicitCode, kCount, kRequest, kSubId };
-  struct Outputs {
-    TextBatch answer;
-    TextBatch shadow;
-  };
   struct Case {
     const char* name;
     Fault fault;
@@ -334,11 +423,9 @@ class RecordingLlm final : public ILlmModel {
     received = input;
     options = call_options;
     *output = {{41, 6, "first reply"}, {52, 8, "second reply"}};
-    if (reply == Reply::kCount) *output = {{41, 6, "first reply"}};
-    if (reply == Reply::kRequest)
-      *output = {{41, 6, "first reply"}, {53, 8, "second reply"}};
-    if (reply == Reply::kSubId)
-      *output = {{41, 6, "first reply"}, {52, 9, "second reply"}};
+    if (reply == Reply::kCount) output->resize(1);
+    if (reply == Reply::kRequest) ++output->back().req_id;
+    if (reply == Reply::kSubId) ++output->back().sub_id;
     if (reply == Reply::kError) {
       *diagnostic = "literal model failure";
       return -771;
@@ -348,31 +435,30 @@ class RecordingLlm final : public ILlmModel {
 };
 
 TEST(ModelCallTest, SharedAlignedInvocationOwnsEmptyErrorAndProvenanceRules) {
+  using Reply = RecordingLlm::Reply;
   struct Case {
-    const char* name;
     bool empty;
     bool bound;
-    RecordingLlm::Reply reply;
+    Reply reply;
     int code;
     const char* error;
   };
   const std::vector<Case> cases{
-      {"empty bound", true, true, RecordingLlm::Reply::kValid, 0, ""},
-      {"empty unbound", true, false, RecordingLlm::Reply::kValid, 0, ""},
-      {"unbound nonempty", false, false, RecordingLlm::Reply::kValid,
-       error::kModelCallFailed, "model is null"},
-      {"model error", false, true, RecordingLlm::Reply::kError, -771,
-       "literal model failure"},
-      {"count", false, true, RecordingLlm::Reply::kCount,
-       error::kOutputCountMismatch, "count mismatch"},
-      {"request", false, true, RecordingLlm::Reply::kRequest,
-       error::kOutputProvenanceMismatch, "provenance mismatch"},
-      {"sub", false, true, RecordingLlm::Reply::kSubId,
-       error::kOutputProvenanceMismatch, "provenance mismatch"},
-      {"valid", false, true, RecordingLlm::Reply::kValid, 0, ""},
+      {true, true, Reply::kValid, 0, ""},
+      {true, false, Reply::kValid, 0, ""},
+      {false, false, Reply::kValid, error::kModelCallFailed, "model is null"},
+      {false, true, Reply::kError, -771, "literal model failure"},
+      {false, true, Reply::kCount, error::kOutputCountMismatch,
+       "count mismatch"},
+      {false, true, Reply::kRequest, error::kOutputProvenanceMismatch,
+       "provenance mismatch"},
+      {false, true, Reply::kSubId, error::kOutputProvenanceMismatch,
+       "provenance mismatch"},
+      {false, true, Reply::kValid, 0, ""},
   };
   for (const auto& row : cases) {
-    SCOPED_TRACE(row.name);
+    SCOPED_TRACE(::testing::Message() << row.empty << "," << row.bound << ","
+                                      << static_cast<int>(row.reply));
     auto model = std::make_shared<RecordingLlm>();
     model->reply = row.reply;
     LlmCall call(row.bound ? model : nullptr, "chosen_slot", "chosen_model");
@@ -441,7 +527,14 @@ TEST(AuthorNodeTest, InitCopiesResolvedKeysParametersFactsAndModelBinding) {
                 ++model_validations;
                 return models.generator.IsBound();
               });
-  AuthorNode<decltype(spec)> node("owned_init", std::move(spec));
+  auto nodes = [&] {
+    auto source = std::move(spec);
+    auto copied = source;
+    using Node = AuthorNode<decltype(source)>;
+    return std::make_pair(std::make_unique<Node>("first", std::move(source)),
+                          std::make_unique<Node>("second", std::move(copied)));
+  }();
+  auto& node = *nodes.first;
   {
     auto plan = TextPlan({{"prefix", "normalized"},
                           {"tokens", 23},
@@ -457,12 +550,20 @@ TEST(AuthorNodeTest, InitCopiesResolvedKeysParametersFactsAndModelBinding) {
     plan.ports.clear();
     plan.model_bindings.clear();
   }
+  auto other_plan = TextPlan({{"prefix", "other"}, {"tokens", 17}});
+  other_plan.ports = {
+      TextPort("text", "other.text"),
+      TextPort("answer", "other.answer", PortDirection::kOutput)};
+  other_plan.model_bindings.push_back(
+      {"generator", "llm", "bind_generator", "resolved_model"});
+  ASSERT_TRUE(nodes.second->Init({&other_plan, &session, nullptr}));
   AlgContext context;
+  context.Publish("other.text", kSample);
   context.Publish("text", TextBatch{{41, 6, "wrong default key"}});
   context.Publish("request.text", kSample);
   ASSERT_EQ(node.Process(&context), 0);
-  EXPECT_EQ(model_validations, 1);
-  EXPECT_EQ(seen_lifetime, "session");
+  EXPECT_EQ(model_validations, 2);
+  EXPECT_EQ(seen_lifetime, "request");
   EXPECT_EQ(seen_model, "resolved_model");
   EXPECT_EQ(seen_slot, "generator");
   ASSERT_EQ(model->received.size(), 2U);
@@ -474,9 +575,37 @@ TEST(AuthorNodeTest, InitCopiesResolvedKeysParametersFactsAndModelBinding) {
   const auto* output = context.Read<TextBatch>("result.answer");
   ASSERT_NE(output, nullptr);
   EXPECT_EQ(output->at(1).data, "second reply");
+  EXPECT_FALSE(context.Has("other.answer"));
+  ASSERT_EQ(nodes.second->Process(&context), 0);
+  EXPECT_EQ(model->received[0].data, "other/request:red");
+  EXPECT_EQ(model->options.max_tokens, 17);
+  ASSERT_NE(context.Read<TextBatch>("other.answer"), nullptr);
+  EXPECT_EQ(context.Read<TextBatch>("other.answer")->at(1).sub_id, 8U);
+  AlgContext next_request;
+  next_request.Publish("request.text", kSample);
+  ASSERT_EQ(node.Process(&next_request), 0);
+  EXPECT_EQ(model->received[0].data, "normalized/session:red");
 }
 
 struct PauseGate {
+  void Pause() {
+    std::unique_lock<std::mutex> lock(mutex);
+    entered = true;
+    changed.notify_all();
+    changed.wait(lock, [&] { return released; });
+  }
+  bool WaitUntilEntered() {
+    std::unique_lock<std::mutex> lock(mutex);
+    return changed.wait_for(lock, std::chrono::seconds(5),
+                            [&] { return entered; });
+  }
+  void Release() {
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      released = true;
+    }
+    changed.notify_all();
+  }
   std::mutex mutex;
   std::condition_variable changed;
   bool entered = false;
@@ -537,17 +666,24 @@ auto ControlledSpec(ControlObservations& observed,
                for (const auto& item : *inputs.text) {
                  output.emplace_back(item.req_id, item.sub_id,
                                      p.prepared + "|" + item.data);
-                 if (gate && output.size() == 1) {
-                   std::unique_lock<std::mutex> lock(gate->mutex);
-                   gate->entered = true;
-                   gate->changed.notify_all();
-                   gate->changed.wait(lock, [&] { return gate->released; });
-                 }
+                 if (gate && output.size() == 1) gate->Pause();
                }
                return NodeResult<TextBatch>::Success(std::move(output));
              })
       .WithControls(
           {ReplaceFields(17, "replace", {"prefix", "suffix", "needs_extra"})});
+}
+
+void ExpectControlledOutput(const AlgContext& context,
+                            const std::string& prefix) {
+  const auto* output = context.Read<TextBatch>("result.answer");
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), kSample.size());
+  for (size_t i = 0; i < kSample.size(); ++i) {
+    EXPECT_EQ(output->at(i).data, prefix + kSample[i].data);
+    EXPECT_EQ(output->at(i).req_id, kSample[i].req_id);
+    EXPECT_EQ(output->at(i).sub_id, kSample[i].sub_id);
+  }
 }
 
 TEST(AuthorNodeTest,
@@ -568,11 +704,7 @@ TEST(AuthorNodeTest,
     AlgContext context;
     context.Publish("request.text", kSample);
     ASSERT_EQ(node.Process(&context), 0);
-    const auto* output = context.Read<TextBatch>("result.answer");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 2U);
-    EXPECT_EQ(output->at(0).data, "new/tail:session|red");
-    EXPECT_EQ(output->at(1).data, "new/tail:session|blue");
+    ExpectControlledOutput(context, "new/tail:session|");
   }
   EXPECT_EQ(node.Control(17, R"({"suffix":"final"})").status,
             NodeControlStatus::kHandled);
@@ -595,11 +727,7 @@ TEST(AuthorNodeTest,
     AlgContext context;
     context.Publish("request.text", kSample);
     ASSERT_EQ(node.Process(&context), 0);
-    const auto* output = context.Read<TextBatch>("result.answer");
-    ASSERT_NE(output, nullptr);
-    ASSERT_EQ(output->size(), 2U);
-    EXPECT_EQ(output->at(0).data, "new/final:session|red");
-    EXPECT_EQ(output->at(1).data, "new/final:session|blue");
+    ExpectControlledOutput(context, "new/final:session|");
   }
   EXPECT_EQ(observed.prepares, 7);
   EXPECT_EQ(observed.validates, 5);
@@ -624,45 +752,29 @@ TEST(AuthorNodeTest, OneProcessHoldsOneSnapshotForItsWholeBatch) {
   first.Publish("request.text", kSample);
   auto running =
       std::async(std::launch::async, [&] { return node.Process(&first); });
-  bool entered;
-  {
-    std::unique_lock<std::mutex> lock(gate->mutex);
-    entered = gate->changed.wait_for(lock, std::chrono::seconds(5),
-                                     [&] { return gate->entered; });
-  }
+  const bool entered = gate->WaitUntilEntered();
   auto controlling = std::async(std::launch::async, [&] {
     return node.Control(17, R"({"prefix":"new"})");
   });
   const bool updated_while_paused =
       controlling.wait_for(std::chrono::seconds(5)) ==
       std::future_status::ready;
-  {
-    std::lock_guard<std::mutex> lock(gate->mutex);
-    gate->released = true;
-  }
-  gate->changed.notify_all();
+  gate->Release();
   const int code = running.get();
   const auto update = controlling.get();
   EXPECT_TRUE(entered);
   EXPECT_TRUE(updated_while_paused);
   EXPECT_EQ(update.status, NodeControlStatus::kHandled);
   ASSERT_EQ(code, 0);
-  const auto* old_output = first.Read<TextBatch>("result.answer");
-  ASSERT_NE(old_output, nullptr);
-  ASSERT_EQ(old_output->size(), 2U);
-  EXPECT_EQ(old_output->at(0).data, "old/tail:session|red");
-  EXPECT_EQ(old_output->at(1).data, "old/tail:session|blue");
+  ExpectControlledOutput(first, "old/tail:session|");
   AlgContext second;
   second.Publish("request.text", kSample);
   ASSERT_EQ(node.Process(&second), 0);
-  const auto* new_output = second.Read<TextBatch>("result.answer");
-  ASSERT_NE(new_output, nullptr);
-  ASSERT_EQ(new_output->size(), 2U);
-  EXPECT_EQ(new_output->at(0).data, "new/tail:session|red");
-  EXPECT_EQ(new_output->at(1).data, "new/tail:session|blue");
+  ExpectControlledOutput(second, "new/tail:session|");
 }
 
-TEST(ConfigurationSnapshotTest, UpdateRequiresValueInitialization) {
+TEST(ConfigurationSnapshotTest,
+     InitializationAndUpdatesPublishOnlyValidValues) {
   ConfigurationSnapshot<int> snapshot;
   EXPECT_EQ(snapshot.Read(), nullptr);
   bool built = false;
@@ -678,12 +790,6 @@ TEST(ConfigurationSnapshotTest, UpdateRequiresValueInitialization) {
   auto reader = snapshot.Read();
   ASSERT_NE(reader, nullptr);
   EXPECT_EQ(*reader, 10);
-}
-
-TEST(ConfigurationSnapshotTest,
-     RejectedCandidatesPreserveOldReaderAndCurrentState) {
-  ConfigurationSnapshot<int> snapshot(10);
-  auto reader = snapshot.Read();
   for (int fault : {0, 1, 2}) {
     SCOPED_TRACE(fault);
     const auto result = snapshot.Update([&](const int&) -> NodeResult<int> {
@@ -719,26 +825,14 @@ TEST(ConfigurationSnapshotTest,
   auto first = std::async(std::launch::async, [&] {
     return snapshot.Update([&](const int& value) {
       first_base = value;
-      std::unique_lock<std::mutex> lock(gate.mutex);
-      gate.entered = true;
-      gate.changed.notify_all();
-      gate.changed.wait(lock, [&] { return gate.released; });
+      gate.Pause();
       return NodeResult<int>::Success(value + 1);
     });
   });
-  bool entered;
-  {
-    std::unique_lock<std::mutex> lock(gate.mutex);
-    entered = gate.changed.wait_for(lock, std::chrono::seconds(5),
-                                    [&] { return gate.entered; });
-  }
+  const bool entered = gate.WaitUntilEntered();
   const auto while_preparing = snapshot.Read();
   const int unpublished = *while_preparing;
-  {
-    std::lock_guard<std::mutex> lock(gate.mutex);
-    gate.released = true;
-  }
-  gate.changed.notify_all();
+  gate.Release();
   const auto first_result = first.get();
   const auto second_result = snapshot.Update([&](const int& value) {
     second_base = value;

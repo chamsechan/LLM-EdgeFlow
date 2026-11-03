@@ -46,27 +46,28 @@ TEST(ParameterStateTest, IncludedFieldsAreFlatAndHooksRunInsideOut) {
       });
   const ParameterSet set(spec);
   std::shared_ptr<const ParameterValues> values;
-  std::string diagnostic = "stale";
-  ASSERT_TRUE(set.Parse(Json::object(), &values, &diagnostic)) << diagnostic;
-  EXPECT_TRUE(diagnostic.empty());
-  EXPECT_EQ(calls,
-            (std::vector<std::string>{"inner prepare", "inner validate",
-                                      "outer prepare", "outer validate"}));
-  EXPECT_EQ(values->Effective(), (Json{{"size", 6}, {"enabled", true}}));
-  EXPECT_EQ(values->Get<Config>().group.size, 6);
-  EXPECT_EQ(*values->Get<Config>().compiled, 7);
-  EXPECT_THROW(values->Get<Group>(), std::logic_error);
-  EXPECT_EQ(values->Integer("size"), 6);
-  EXPECT_FALSE(values->Integer("enabled"));
-
-  calls.clear();
+  std::string diagnostic;
   Json normalized;
   std::vector<ConfigFieldValidationError> errors;
   ASSERT_TRUE(ValidateAndNormalizeFields(set.Fields(), Json::object(),
                                          &normalized, &errors));
-  ASSERT_TRUE(set.Parse(normalized, &values, &diagnostic)) << diagnostic;
-  EXPECT_EQ(values->Effective(), (Json{{"size", 6}, {"enabled", true}}));
-  EXPECT_EQ(calls.size(), 4U);
+  for (bool prepared : {false, true}) {
+    SCOPED_TRACE(prepared);
+    calls.clear();
+    diagnostic = "stale";
+    ASSERT_TRUE(prepared ? set.ParseNormalized(normalized, &values, &diagnostic)
+                         : set.Parse(Json::object(), &values, &diagnostic));
+    EXPECT_TRUE(diagnostic.empty());
+    EXPECT_EQ(calls,
+              (std::vector<std::string>{"inner prepare", "inner validate",
+                                        "outer prepare", "outer validate"}));
+    EXPECT_EQ(values->Effective(), (Json{{"size", 6}, {"enabled", true}}));
+    EXPECT_EQ(values->Get<Config>().group.size, 6);
+    EXPECT_EQ(*values->Get<Config>().compiled, 7);
+    EXPECT_THROW(values->Get<Group>(), std::logic_error);
+    EXPECT_EQ(values->Integer("size"), 6);
+    EXPECT_FALSE(values->Integer("enabled"));
+  }
   auto old_values = values;
   EXPECT_FALSE(set.Parse({{"size", "invalid"}}, &values, &diagnostic));
   EXPECT_EQ(values, nullptr);
@@ -110,8 +111,18 @@ TEST(ParameterStateTest, BindingFactsAndFailuresReachTheStateHooks) {
       if (standard) throw std::runtime_error("prepare fault");
       throw 7;
     });
-    EXPECT_FALSE(throwing.Parse(Json::object(), &diagnostic));
-    EXPECT_FALSE(diagnostic.empty());
+    const ParameterSet set(throwing);
+    for (bool prepared : {false, true}) {
+      std::shared_ptr<const ParameterValues> values;
+      ASSERT_TRUE(ParameterSet(spec).Parse(Json::object(), &values));
+      const auto old_values = values;
+      EXPECT_FALSE(
+          prepared ? set.ParseNormalized({{"value", 1}}, &values, &diagnostic)
+                   : set.Parse(Json::object(), &values, &diagnostic));
+      EXPECT_EQ(values, nullptr);
+      EXPECT_EQ(old_values->Get<Config>().value, 1);
+      EXPECT_FALSE(diagnostic.empty());
+    }
   }
 }
 
