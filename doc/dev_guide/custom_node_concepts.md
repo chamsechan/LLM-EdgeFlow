@@ -193,9 +193,16 @@ Validator 和 Studio 自动使用注册结果，不需要你再维护 UI 节点�
 `Validate` / `ValidateBindings`，由预检与初始化共用。参考
 [多输入 starter](../../dev_support/node_authoring/starter_batch_node.cpp)。
 
+声明对象按值复制，输入和输出的实际绑定由各 Node 实例独立持有。内部共用
+`ClonePtr` 管理绑定的复制。输入、输出、模型槽、参数声明及 NodeSpec 均先完成全部复制
+再替换，复制失败时保留原对象；NodeSpec 复制赋值要求 Run 可无异常地移动赋值。
+字段在 `FieldBuilder::Build()` 时生成并保存 schema，后续修改 Builder 不影响已经构建的
+声明。嵌套字段的 `Prepare` / `Validate` 仍在参数解析时执行，不在构建 schema 时执行。
+
 Definition 会帮助原生校验发现类型、字段和连线错误，但不会自动实现业务代码。
 Validator 根据 Definition 字段列表一次性校验未知字段、类型、范围和枚举，并填入默认值。
 执行包装在初始化时消费 `ValidatedNodePlan` 的归一化配置与解析端口，缺少 Plan 时失败。
+`ParseNormalized` 只消费已补齐默认值的配置；缺少非可选字段直接失败，不再次补默认值。
 业务函数收到普通输入、参数和模型，返回 `NodeResult`。包装统一写入错误码与诊断。
 跨字段及连线语义分别用 `Validate` / `ValidateBindings`，初始化与预检使用同一规则。
 Control 更新单独归一化参数、构造下一状态后发布。

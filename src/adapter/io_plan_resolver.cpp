@@ -178,9 +178,6 @@ int IoPlanResolver::ResolveFromPipelineJson(
       out_diagnostic->code = d.code;
       out_diagnostic->path = d.path;
       out_diagnostic->message = d.message;
-
-      out_diagnostic->pipeline_diagnostic =
-          PipelineDiagnostic{d.code, d.path, d.message};
     } else {
       std::string msg = "Validation failed without diagnostics";
       if (out_error) *out_error = msg;

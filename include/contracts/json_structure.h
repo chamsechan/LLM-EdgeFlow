@@ -2,13 +2,14 @@
 
 #include <algorithm>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <utility>
 
 namespace llm_edgeflow::json_structure {
 
-// 浅层 JSON Schema 关键字谓词，供有序解析器、其编辑器 schema 和 Control
-// payload 校验共用。不做递归校验、归一化或诊断，错误契约由各调用方负责。
+// 浅层结构谓词与字段扫描供有序解析器、schema 导出和 Control 共用。
+// 不做递归校验或归一化；检查顺序和诊断由调用方负责。
 using Json = nlohmann::json;
 
 inline Json Object(Json properties, Json required = Json::array()) {
@@ -26,6 +27,23 @@ inline const Json& Property(const Json& shape, const char* name) {
 
 inline bool AllowsProperty(const Json& shape, const std::string& name) {
   return shape.at("properties").contains(name);
+}
+
+// 调用方先确认 object 类型，并自行决定检查顺序和诊断。
+inline std::optional<std::string> FindUnknownProperty(const Json& object,
+                                                      const Json& shape) {
+  for (const auto& [name, value] : object.items())
+    if (!AllowsProperty(shape, name)) return name;
+  return std::nullopt;
+}
+
+inline std::optional<std::string> FindMissingProperty(const Json& object,
+                                                      const Json& shape) {
+  for (const auto& field : shape.at("required")) {
+    const auto& name = field.get_ref<const std::string&>();
+    if (!object.contains(name)) return name;
+  }
+  return std::nullopt;
 }
 
 inline bool MissingRequired(const Json& object, const Json& shape,

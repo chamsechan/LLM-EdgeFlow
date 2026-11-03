@@ -1,10 +1,8 @@
 #pragma once
 
-#include <optional>
 #include <string>
 
 #include "contracts/error_codes.h"
-#include "core/pipeline_diagnostic.h"
 
 namespace llm_edgeflow {
 
@@ -17,13 +15,11 @@ struct DeploymentDiagnostic {
   int code = error::kOk;  // 框架统一错误码
   std::string path;       // 原始完整文档的 RFC 6901 JSON Pointer
   std::string message;
-  std::optional<PipelineDiagnostic> pipeline_diagnostic;
 
   void Clear() {
     code = error::kOk;
     path.clear();
     message.clear();
-    pipeline_diagnostic.reset();
   }
 };
 
