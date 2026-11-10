@@ -72,34 +72,22 @@
   X(kInvalidOutputAllocation, -3067, "INVALID_OUTPUT_ALLOCATION")       \
   X(kValidationFailed, -3068, "VALIDATION_FAILED")                      \
   X(kBodyTooLarge, -3069, "BODY_TOO_LARGE")                             \
-  X(kDemoNotBuilt, -3070, "DEMO_NOT_BUILT")                             \
-  X(kDeploymentValidationFailed, -3074, "DEPLOYMENT_VALIDATION_FAILED") \
   X(kDocumentTooLarge, -3075, "DOCUMENT_TOO_LARGE")                     \
   X(kFileExists, -3076, "FILE_EXISTS")                                  \
-  X(kInvalidAuthoringRequest, -3077, "INVALID_AUTHORING_REQUEST")       \
   X(kInvalidInitRequest, -3081, "INVALID_INIT_REQUEST")                 \
   X(kInvalidPipelineDocument, -3083, "INVALID_PIPELINE_DOCUMENT")       \
   X(kInvalidPipelineFile, -3084, "INVALID_PIPELINE_FILE")               \
   X(kInvalidPipelineName, -3085, "INVALID_PIPELINE_NAME")               \
   X(kInvalidPipelinePath, -3086, "INVALID_PIPELINE_PATH")               \
-  X(kInvalidProfile, -3087, "INVALID_PROFILE")                          \
   X(kNotFound, -3088, "NOT_FOUND")                                      \
-  X(kPatchApplicationFailed, -3089, "PATCH_APPLICATION_FAILED")         \
   X(kPathEscape, -3090, "PATH_ESCAPE")                                  \
   X(kPipelineNotFound, -3091, "PIPELINE_NOT_FOUND")                     \
   X(kPipelineReadFailed, -3092, "PIPELINE_READ_FAILED")                 \
-  X(kProfileMismatch, -3093, "PROFILE_MISMATCH")                        \
   X(kRevisionConflict, -3094, "REVISION_CONFLICT")                      \
-  X(kRunBusy, -3095, "RUN_BUSY")                                        \
-  X(kRunNotFound, -3096, "RUN_NOT_FOUND")                               \
-  X(kRunTimeout, -3097, "RUN_TIMEOUT")                                  \
   X(kSaveFailed, -3098, "SAVE_FAILED")                                  \
-  X(kSelectionCheckFailed, -3100, "SELECTION_CHECK_FAILED")             \
   X(kSymlinkRejected, -3101, "SYMLINK_REJECTED")                        \
   X(kToolNotBuilt, -3102, "TOOL_NOT_BUILT")                             \
-  X(kToolOutdated, -3103, "TOOL_OUTDATED")                              \
   X(kToolProtocolError, -3104, "TOOL_PROTOCOL_ERROR")                   \
-  X(kUnknownProfile, -3105, "UNKNOWN_PROFILE")                          \
   X(kInvalidFilePath, -4001, "INVALID_FILE_PATH")                       \
   X(kDeploymentConfig, -4002, "DEPLOYMENT_CONFIG")                      \
   X(kIoValidationError, -4003, "IO_VALIDATION_ERROR")                   \

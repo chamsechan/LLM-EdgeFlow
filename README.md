@@ -76,7 +76,7 @@ cmake --build build --target alg_sdk alg_demo alg_pipeline_tool alg_show --paral
 ./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json --web
 ```
 
-本地 Web 工作台监听 `127.0.0.1`，支持连线、参数编辑、检查与试运行。后续可按 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则并用 Demo 验证。
+本地 Web 工作台监听 `127.0.0.1`，支持连线、参数编辑、原生检查与 JSON 保存。后续可按 [Studio 编排练习](tools/pipeline_studio/README.md#第一次编排)修改规则并用 Demo 验证。
 
 ## 架构与扩展
 

@@ -45,16 +45,6 @@ assert.deepEqual(pipeline, beforeFailure);
 pipeline.pipeline[0].params.encoder = '';
 workbench.removeModel(pipeline, catalog, 'new');
 assert.deepEqual(pipeline.models, []);
-const asset = {model: {...original, backend: {type: 'runtime', params: {'a/b': {'~file': 'old'}}}},
-  paths: {'/file': 'assets/weights', '/backend/params/a~1b/~0file': 'assets/nested'}};
-const resolved = workbench.assetModel(asset);
-assert.equal(resolved.file, 'assets/weights');
-assert.equal(resolved.backend.params['a/b']['~file'], 'assets/nested');
-assert.equal(asset.model.file, 'weights.bin');
-const io = {io: {input: [{type: 'a', name: 'b', params: {keep: 1}}], output: [{type: 'c', name: 'd', inputs: {x: 'n.y'}}]}};
-assert.deepEqual(workbench.pipelineIo(io), {input: [{type: 'a', name: 'b'}], output: [{type: 'c', name: 'd'}]});
-assert.equal(workbench.ioLabel(workbench.pipelineIo(io)), 'a/b → c/d');
-
 // Execute the actual API transport with proxy prefixes and native HTTP responses.
 globalThis.location = {href: `${base || 'http://localhost'}/proxy/index.html`, hash: ''};
 const {api, write} = await load('api.js');

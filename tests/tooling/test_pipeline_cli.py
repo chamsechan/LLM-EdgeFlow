@@ -20,12 +20,10 @@ class PipelineCliContractTest(unittest.TestCase):
     def setUpClass(cls):
         if not TOOL.is_file():
             raise RuntimeError(f"Build alg_pipeline_tool first or set LLM_EDGEFLOW_PIPELINE_TOOL: {TOOL}")
-        result = subprocess.run([str(TOOL), "init", "--profile", "keyword_match_rules"],
-                                cwd=ROOT, capture_output=True, text=True, check=True)
-        cls.base = json.loads(result.stdout)["pipeline"]
+        cls.base = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
 
-    def call(self, *args, document=None, raw_input=None, expected=0):
-        result = subprocess.run([str(TOOL), *args], cwd=ROOT, capture_output=True,
+    def call(self, *args, document=None, raw_input=None, expected=0, cwd=None):
+        result = subprocess.run([str(TOOL), *args], cwd=ROOT if cwd is None else cwd, capture_output=True,
                                 text=True, input=json.dumps(document) if document is not None else raw_input)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         try:
@@ -37,6 +35,7 @@ class PipelineCliContractTest(unittest.TestCase):
     def test_catalog_description_and_schema_are_machine_readable(self):
         catalog = self.call("catalog")
         self.assertTrue(catalog["ok"])
+        self.assertNotIn("profiles", catalog)
         rule = next(item for item in catalog["nodes"] if item["node_type"] == "text_rule_match")
         self.assertIn("text", [port["key"] for port in rule["inputs"]])
         self.assertIn("matches", [port["key"] for port in rule["outputs"]])
@@ -46,6 +45,19 @@ class PipelineCliContractTest(unittest.TestCase):
         schema = self.call("export-schema")
         self.assertEqual(schema["type"], "object")
         self.assertIn("pipeline", schema["properties"])
+
+    def test_catalog_and_draft_creation_do_not_depend_on_demo_profiles(self):
+        catalog = self.call("catalog")
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            (directory / "demo").mkdir()
+            (directory / "demo/profiles.json").write_text("{invalid profile", encoding="utf-8")
+            self.assertEqual(self.call("catalog", cwd=directory), catalog)
+            draft = self.call("init", "--input", "keyword_in/keyword_match",
+                              "--output", "json_out/keyword_match", cwd=directory)
+            self.assertTrue(draft["ok"])
+            self.assertEqual(draft["pipeline"]["pipeline"], [])
+            self.assertEqual(draft["pipeline"]["models"], [])
 
     def test_stdin_and_file_plan_have_the_same_order_and_layers(self):
         stdin = self.call("plan", "--stdin", document=self.base)
@@ -77,15 +89,20 @@ class PipelineCliContractTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertIn("alg_pipeline_tool", result.stderr)
 
-    def test_raw_profile_and_schema_exports_are_complete_reusable_json_artifacts(self):
+    def test_raw_draft_and_schema_exports_are_complete_reusable_json_artifacts(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "exported.json"
             with path.open("wb") as output:
-                result = subprocess.run([str(TOOL), "init", "--profile", "keyword_match_rules", "--raw"],
+                result = subprocess.run([str(TOOL), "init", "--input", "keyword_in/keyword_match",
+                                         "--output", "json_out/keyword_match", "--raw"],
                                         cwd=ROOT, stdout=output, stderr=subprocess.PIPE)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(path.read_text()), self.base)
-            self.assertTrue(self.call("validate", str(path))["ok"])
+            draft = json.loads(path.read_text())
+            self.assertEqual(draft, {"io": {
+                "input": [{"type": "keyword_in", "name": "keyword_match"}],
+                "output": [{"type": "json_out", "name": "keyword_match"}]},
+                "models": [], "pipeline": []})
+            self.assertFalse(self.call("validate", str(path), expected=1)["ok"])
             schema_path = Path(directory) / "schema.json"
             with schema_path.open("wb") as output:
                 result = subprocess.run([str(TOOL), "export-schema"], cwd=ROOT,

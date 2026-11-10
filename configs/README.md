@@ -83,8 +83,8 @@ Pipeline 根 `io.input` / `io.output` 是非空数组，每项按 `(type, name)`
 `validate` / `plan` 与 Operator 共用接入准备和 Core 校验入口。
 读取 `FILE` 时，模型文件以该文件的父目录解析。`--stdin` 没有相对模型文件的目录基准。
 工具还支持 `edit --stdin` 事务编辑、`export-schema`、`validate-io` 和 `resolve-conf`。
-`init --profile NAME` 克隆已有 Profile 的 Pipeline。`init --input TYPE/NAME --output TYPE/NAME`
-创建包含 `io` 及空 `models` / `pipeline` 数组的草稿，输入输出选项均可重复。
+`init --input TYPE/NAME --output TYPE/NAME` 创建包含 `io` 及空 `models` / `pipeline` 数组的草稿，
+输入输出选项均可重复。复用已有方案时直接打开或复制对应 Pipeline JSON。
 
 ## 手写 JSON 的补全
 

@@ -4,25 +4,19 @@
 from __future__ import annotations
 
 import argparse
-import copy
-from contextlib import contextmanager
 from enum import IntEnum
 import hashlib
 import http.server
-import importlib.util
 import json
 import os
 from pathlib import Path
 import re
-import signal
 import socketserver
 import subprocess
 import tempfile
 import threading
-import time
 from typing import Any
 from urllib.parse import parse_qs, urlparse
-import uuid
 import webbrowser
 
 
@@ -43,20 +37,7 @@ PIPELINE_TOOL = Path(
         PROJECT_ROOT / "build" / "alg_pipeline_tool",
     )
 )
-DEMO_BINARY = Path(
-    os.environ.get(
-        "LLM_EDGEFLOW_DEMO_BINARY", PROJECT_ROOT / "build" / "alg_demo"
-    )
-)
-_SELECTION_SPEC = importlib.util.spec_from_file_location("edgeflow_selection", PROJECT_ROOT / "tools/verify_selection.py")
-SELECTION = importlib.util.module_from_spec(_SELECTION_SPEC)
-_SELECTION_SPEC.loader.exec_module(SELECTION)
-
-MAX_LOG_BYTES = 2 * 1024 * 1024
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
-SMOKE_RUN_TIMEOUT_SECONDS = 300
-REAL_RUN_TIMEOUT_SECONDS = 1800
-PROCESS_STOP_TIMEOUT_SECONDS = 5
 
 
 class StudioError(RuntimeError):
@@ -84,27 +65,15 @@ def revision_for(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def get_tool_fingerprint() -> str:
-    if PIPELINE_TOOL.is_file():
-        digest = hashlib.sha256(str(PIPELINE_TOOL.resolve()).encode())
-        with PIPELINE_TOOL.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
-    return hashlib.sha256(str(PIPELINE_TOOL).encode()).hexdigest()[:16]
-
-
 class WorkbenchService:
     """/api 背后的状态与文件系统边界。"""
 
     def __init__(self, config_root: Path = CONFIG_ROOT, initial: Path | None = None):
         self.config_root = config_root.resolve()
-        self.jobs: dict[str, dict[str, Any]] = {}
-        self.job_lock = threading.Lock()
         self.save_lock = threading.Lock()
         self.initial_document = None
         if initial is not None:
-            pipeline = read_pipeline_file(initial)
+            raw, pipeline = read_pipeline_document(initial)
             self.initial_document = json_result(
                 True, filename=initial.name, revision="", pipeline=pipeline, imported=True
             )
@@ -112,7 +81,10 @@ class WorkbenchService:
             try:
                 managed = self.managed_path(initial.name, must_exist=True)
                 if initial.resolve() == managed.resolve():
-                    self.initial_document = self.open_pipeline(initial.name)
+                    self.initial_document = json_result(
+                        True, filename=initial.name, revision=revision_for(raw),
+                        pipeline=pipeline, imported=False
+                    )
             except StudioError:
                 pass
 
@@ -139,56 +111,15 @@ class WorkbenchService:
         for path in sorted(self.config_root.glob("pipeline_*.json")):
             try:
                 checked = self.managed_path(path.name, must_exist=True)
-                raw = checked.read_bytes()
-                if not is_pipeline_document(json.loads(raw)):
-                    continue
-            except (StudioError, OSError, json.JSONDecodeError):
+                raw, _ = read_pipeline_document(checked)
+            except StudioError:
                 continue
             items.append({"filename": checked.name, "revision": revision_for(raw)})
         return json_result(True, pipelines=items)
 
-    @staticmethod
-    def io_pairs(pipeline: Any) -> dict[str, list[dict[str, str]]]:
-        inputs, outputs = SELECTION.pipeline_io(pipeline)
-        def pairs(entries):
-            if not isinstance(entries, list):
-                return []
-            return [{"type": item["type"], "name": item["name"]}
-                    for item in entries if isinstance(item, dict)
-                    and isinstance(item.get("type"), str)
-                    and isinstance(item.get("name"), str)]
-        return {"input": pairs(inputs), "output": pairs(outputs)}
-
-    @contextmanager
-    def temporary_documents(self, pipeline: Any, prefix: str):
-        """快照保留原目录的资源基准，只清理本次创建的隐藏文件。"""
-        self.config_root.mkdir(parents=True, exist_ok=True)
-        paths: list[Path] = []
-        try:
-            descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".json", dir=self.config_root)
-            pipeline_path = Path(name)
-            paths.append(pipeline_path)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(pipeline, stream, ensure_ascii=False, indent=2)
-                stream.write("\n")
-            descriptor, name = tempfile.mkstemp(prefix=prefix, suffix=".conf", dir=self.config_root)
-            conf_path = Path(name)
-            paths.append(conf_path)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump({"pipe_path": pipeline_path.name}, stream)
-                stream.write("\n")
-            yield pipeline_path, conf_path
-        finally:
-            for path in paths:
-                path.unlink(missing_ok=True)
-
     def open_pipeline(self, requested: str) -> dict[str, Any]:
         path = self.managed_path(requested, must_exist=True)
-        raw = path.read_bytes()
-        try:
-            pipeline = json.loads(raw)
-        except json.JSONDecodeError as error:
-            raise StudioError(ErrorCode.JSON_PARSE, str(error)) from error
+        raw, pipeline = read_pipeline_document(path)
         return json_result(
             True,
             filename=path.name,
@@ -222,93 +153,26 @@ class WorkbenchService:
     def catalog(self) -> dict[str, Any]:
         return self.invoke_tool(["catalog"])
 
-    def assets(self) -> dict[str, Any]:
-        return {"ok": True, **SELECTION.asset_catalog(pipeline_dir=self.config_root)}
-
-    def verify_selection(self, pipeline: Any, variant: str = "", filename: str = "") -> dict[str, Any]:
-        try:
-            pipeline_dir = None
-            if filename:
-                path = self.managed_path(filename, must_exist=True)
-                pipeline_dir = path.parent
-            return SELECTION.inspect_selection(
-                pipeline, PIPELINE_TOOL, pipeline_dir, variant=variant or None)
-        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
-            raise StudioError(ErrorCode.SELECTION_CHECK_FAILED, str(error)) from error
-
-    def validate(self, pipeline: Any, explain: bool = False) -> dict[str, Any]:
-        args = ["validate", "--stdin"]
-        if explain:
-            args.append("--explain")
-        fingerprint = get_tool_fingerprint() if explain else None
-        report = self.invoke_tool(args, pipeline)
-        if explain and isinstance(report, dict):
-            if fingerprint != get_tool_fingerprint():
-                raise StudioError(ErrorCode.TOOL_OUTDATED, "校验期间工具已更新，请重新校验", 409)
-            report["tool_fingerprint"] = fingerprint
-            raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
-            report["revision"] = revision_for(raw)
-        return report
-
-    def preview_fix(
-        self,
-        pipeline: Any,
-        patch: list[dict[str, Any]],
-        expected_revision: str | None = None,
-        tool_fingerprint: str | None = None,
-    ) -> dict[str, Any]:
-        if not expected_revision:
-            raise StudioError(ErrorCode.REVISION_CONFLICT, "必须指定预期修订版本，草稿可能已变更", 409)
-        raw = json.dumps(pipeline, sort_keys=True).encode("utf-8")
-        current_rev = revision_for(raw)
-        if current_rev != expected_revision:
-            raise StudioError(ErrorCode.REVISION_CONFLICT, "草稿已变更，候选失效", 409)
-        current_fp = get_tool_fingerprint()
-        if not tool_fingerprint or current_fp != tool_fingerprint:
-            raise StudioError(ErrorCode.TOOL_OUTDATED, "底层校验工具已重建或更新，候选失效", 409)
-        result = self.preview_authoring({
-            "pipeline": pipeline, "operation": {"kind": "apply_patch", "patch": patch},
-        })
-        if not result.get("ok"):
-            raise StudioError(ErrorCode.PATCH_APPLICATION_FAILED,
-                              json.dumps(result.get("diagnostics", []), ensure_ascii=False))
-        report = result["validation"]
-        if current_fp != report["tool_fingerprint"]:
-            raise StudioError(ErrorCode.TOOL_OUTDATED, "修复预览期间工具已更新，请重新校验", 409)
-        return json_result(True, patched=result["pipeline"], report=report,
-                           revision=report["revision"], tool_fingerprint=current_fp)
+    def validate(self, pipeline: Any) -> dict[str, Any]:
+        return self.invoke_tool(["validate", "--stdin"], pipeline)
 
     def preview_authoring(self, request: dict[str, Any]) -> dict[str, Any]:
-        fingerprint = get_tool_fingerprint()
-        result = self.invoke_tool(["edit", "--stdin"], request)
-        if get_tool_fingerprint() != fingerprint:
-            raise StudioError(ErrorCode.TOOL_OUTDATED, "操作期间工具已更新，请重新加载", 409)
-        if "pipeline" in result:
-            result["validation"]["tool_fingerprint"] = fingerprint
-            result["validation"]["revision"] = revision_for(
-                json.dumps(result["pipeline"], sort_keys=True).encode("utf-8"))
-        return result
+        return self.invoke_tool(["edit", "--stdin"], request)
 
     def init_pipeline(
         self, inputs: list[dict[str, Any]] | None = None,
-        outputs: list[dict[str, Any]] | None = None, profile: str = "",
+        outputs: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         args = ["init"]
-        if profile:
-            if inputs is not None or outputs is not None:
-                raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "Profile 不能与输入输出项同时指定")
-            args.extend(["--profile", profile])
-        else:
-            for option, entries in (("--input", inputs), ("--output", outputs)):
-                entries = [] if entries is None else entries
-                if not isinstance(entries, list):
-                    raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "输入和输出项必须是列表")
-                for entry in entries:
-                    if (not isinstance(entry, dict) or set(entry) != {"type", "name"}
-                            or any(not isinstance(entry[field], str) or not entry[field]
-                                   for field in ("type", "name"))):
-                        raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "输入输出项必须指定 type 和 name")
-                    args.extend([option, entry["type"] + "/" + entry["name"]])
+        for option, entries in (("--input", inputs), ("--output", outputs)):
+            if not isinstance(entries, list) or not entries:
+                raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "请选择输入和输出项")
+            for entry in entries:
+                if (not isinstance(entry, dict) or set(entry) != {"type", "name"}
+                        or any(not isinstance(entry[field], str) or not entry[field]
+                               for field in ("type", "name"))):
+                    raise StudioError(ErrorCode.INVALID_INIT_REQUEST, "输入输出项必须指定 type 和 name")
+                args.extend([option, entry["type"] + "/" + entry["name"]])
         return self.invoke_tool(args)
 
     def save_pipeline(
@@ -369,261 +233,6 @@ class WorkbenchService:
                     staged.unlink(missing_ok=True)
             return json_result(True, filename=path.name, revision=revision_for(encoded), pipeline=pipeline)
 
-    def profile_inputs(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
-        catalog = self.catalog()
-        if not catalog.get("ok"):
-            raise StudioError(ErrorCode.INVALID_PROFILE, json.dumps(catalog, ensure_ascii=False))
-        profiles = [profile for profile in catalog["profiles"] if profile["name"] == profile_name]
-        if not profiles:
-            raise StudioError(ErrorCode.UNKNOWN_PROFILE, profile_name)
-        for profile in profiles:
-            if profile["io"] == self.io_pairs(pipeline):
-                return {key: value for key, value in profile.items() if key not in ("name", "io")}
-        raise StudioError(ErrorCode.PROFILE_MISMATCH, "没有与该 I/O 契约匹配的运行 Profile")
-
-    def resolve_run_conf(self, conf_path: Path, profile: dict[str, Any]) -> dict[str, Any]:
-        depth = max(int(profile.get("batch_size", 1)), int(profile.get("depth", 1)))
-        report = self.invoke_tool(["resolve-conf", conf_path.name, "--root",
-                                   str(conf_path.parent.resolve()), "--depth", str(depth)])
-        if not report.get("ok"):
-            raise StudioError(ErrorCode.DEPLOYMENT_VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
-        return report["configuration"]
-
-    @staticmethod
-    def demo_command(profile: dict[str, Any], conf_path: Path, output_dir: Path) -> list[str]:
-        name = conf_path.stem
-        run_profile = copy.deepcopy(profile)
-        run_profile["config"] = str(conf_path.resolve())
-        for field in ("dataset", "control_file"):
-            if field in run_profile:
-                run_profile[field] = str(PROJECT_ROOT / run_profile[field])
-        output_dir.mkdir(parents=True, exist_ok=True)
-        profile_path = output_dir / "demo-profile.json"
-        if profile_path.is_symlink():
-            raise StudioError(ErrorCode.SYMLINK_REJECTED, "拒绝覆盖符号链接运行 Profile", 409)
-        profile_path.write_text(json.dumps({"profiles": {name: run_profile}},
-                                          ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return [
-            str(DEMO_BINARY), "--profiles-file", str(profile_path), "--profile", name,
-            "--output-dir", str(output_dir),
-        ]
-
-    def preflight(
-        self, pipeline: Any, profile_name: str = "",
-    ) -> dict[str, Any]:
-        report = self.validate(pipeline, explain=True)
-        if not report.get("ok"):
-            return json_result(
-                False, summary={
-                    "status": "validation_failed",
-                    "io": self.io_pairs(pipeline) if isinstance(pipeline, dict) else {},
-                    "project_root": str(PROJECT_ROOT),
-                    "next_step": "请先修复 Pipeline 校验错误",
-                }, validation=report,
-            )
-        if not profile_name:
-            return json_result(
-                True, summary={
-                    "status": "no_test_data", "io": self.io_pairs(pipeline),
-                    "project_root": str(PROJECT_ROOT),
-                    "next_step": "方案校验通过。请选择测试数据。",
-                }, validation=report,
-            )
-        profile = self.profile_inputs(pipeline, profile_name)
-        with self.temporary_documents(pipeline, ".studio-preflight-") as (_, staged_conf):
-            configuration = self.resolve_run_conf(staged_conf, profile)
-            assets = []
-            all_assets_ready = True
-            for info in configuration.get("model_files", []):
-                path = Path(info["resolved"])
-                exists = path.is_file()
-                all_assets_ready &= exists
-                assets.append({"model": info["model"], "path": info["path"],
-                               "resolved": str(path),
-                               "status": "exists_unverified" if exists else "missing"})
-            tools_ready = PIPELINE_TOOL.is_file() and DEMO_BINARY.is_file()
-            next_steps = []
-            if not all_assets_ready:
-                next_steps.append("部分模型资产文件缺失，请检查路径或准备模型。")
-            if not DEMO_BINARY.is_file():
-                next_steps.append("Demo 可执行文件未就绪，请构建 build/alg_demo。")
-            if all_assets_ready and tools_ready:
-                next_steps.append("配置与资源预检通过，可以试运行。")
-            summary = {
-                "status": "ready" if all_assets_ready and tools_ready else "attention_required",
-                "io": self.io_pairs(pipeline), "project_root": str(PROJECT_ROOT),
-                "assets": assets,
-                "tools": {"alg_pipeline_tool": PIPELINE_TOOL.is_file(),
-                          "alg_demo": DEMO_BINARY.is_file()},
-                "next_step": " ".join(next_steps) if next_steps else "预检完成",
-            }
-            return json_result(True, summary=summary, configuration=configuration, validation=report)
-
-    def start_run(self, pipeline: Any, profile_name: str) -> dict[str, Any]:
-        report = self.validate(pipeline)
-        if not report.get("ok"):
-            raise StudioError(ErrorCode.VALIDATION_FAILED, json.dumps(report, ensure_ascii=False))
-        profile = self.profile_inputs(pipeline, profile_name or "")
-        with self.job_lock:
-            if any(job["status"] in ("queued", "running") for job in self.jobs.values()):
-                raise StudioError(ErrorCode.RUN_BUSY, "同一工作台最多运行一个任务", 409)
-            job_id = uuid.uuid4().hex[:16]
-            self.jobs[job_id] = {
-                "id": job_id,
-                "status": "queued",
-                "profile": profile_name,
-                "logs": "",
-                "cancel_requested": False,
-                "process": None,
-            }
-        threading.Thread(
-            target=self._run_job,
-            args=(job_id, copy.deepcopy(pipeline), profile),
-            daemon=True,
-        ).start()
-        return json_result(True, job_id=job_id, status="queued")
-
-    @staticmethod
-    def stop_process(process: subprocess.Popen) -> None:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=PROCESS_STOP_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            pass
-        finally:
-            # 主进程先退出时，也结束同组中仍在运行的子进程。
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
-
-    def _run_job(
-        self,
-        job_id: str,
-        pipeline: Any,
-        profile: dict[str, Any],
-    ) -> None:
-        temporary = None
-        try:
-            temporary_parent = PROJECT_ROOT / "build"
-            if not temporary_parent.is_dir():
-                temporary_parent = PROJECT_ROOT
-            temporary = tempfile.TemporaryDirectory(prefix=".studio-run-", dir=temporary_parent)
-            temp_root = Path(temporary.name)
-            with self.temporary_documents(pipeline, ".studio-run-") as (_, conf_path):
-                configuration = self.resolve_run_conf(conf_path, profile)
-                output_dir = temp_root / "results"
-                args = self.demo_command(profile, conf_path, output_dir)
-                timeout = SMOKE_RUN_TIMEOUT_SECONDS if profile.get("suite", "smoke") == "smoke" else REAL_RUN_TIMEOUT_SECONDS
-                process = None
-                timed_out = False
-                with tempfile.TemporaryFile() as log:
-                    try:
-                        with self.job_lock:
-                            job = self.jobs[job_id]
-                            job["configuration"] = configuration
-                            if job["cancel_requested"]:
-                                job["status"] = "cancelled"
-                                job["finished_at"] = time.time()
-                                return
-                            if not DEMO_BINARY.is_file():
-                                raise StudioError(ErrorCode.DEMO_NOT_BUILT, "请先构建 build/alg_demo", 503)
-                            # 检查取消、启动和登记进程共用锁，取消不会落在登记之前。
-                            process = subprocess.Popen(
-                                args, cwd=PROJECT_ROOT, stdout=log, stderr=subprocess.STDOUT,
-                                start_new_session=True,
-                            )
-                            job["process"] = process
-                            job["status"] = "running"
-                            job["started_at"] = time.time()
-                        deadline = time.monotonic() + timeout
-                        while True:
-                            with self.job_lock:
-                                cancelled = self.jobs[job_id]["cancel_requested"]
-                            remaining = deadline - time.monotonic()
-                            if cancelled or remaining <= 0:
-                                timed_out = not cancelled
-                                break
-                            try:
-                                process.wait(timeout=min(.2, remaining))
-                                break
-                            except subprocess.TimeoutExpired:
-                                continue
-                    finally:
-                        if process is not None:
-                            with self.job_lock:
-                                cancelled = self.jobs[job_id]["cancel_requested"]
-                            if cancelled or timed_out or process.poll() is None:
-                                self.stop_process(process)
-                            log.seek(0, os.SEEK_END)
-                            log.seek(max(0, log.tell() - MAX_LOG_BYTES))
-                            with self.job_lock:
-                                job = self.jobs[job_id]
-                                job["logs"] = log.read().decode("utf-8", errors="replace")
-                                job["exit_code"] = process.returncode
-                if timed_out:
-                    raise StudioError(ErrorCode.RUN_TIMEOUT, f"运行超过 {timeout} 秒", 408)
-                result_files: dict[str, Any] = {}
-                for name in ("summary.json", "results.jsonl"):
-                    matches = list(output_dir.rglob(name)) if output_dir.exists() else []
-                    if not matches:
-                        continue
-                    text = matches[0].read_text(encoding="utf-8", errors="replace")
-                    if name.endswith(".json"):
-                        try:
-                            result_files[name] = json.loads(text)
-                        except json.JSONDecodeError:
-                            result_files[name] = text
-                    else:
-                        result_files[name] = [
-                            json.loads(line) for line in text.splitlines() if line.strip()
-                        ]
-                with self.job_lock:
-                    job = self.jobs[job_id]
-                    job["result"] = result_files
-                    job["status"] = "cancelled" if job["cancel_requested"] else (
-                        "completed" if process.returncode == 0 else "failed"
-                    )
-                    job["finished_at"] = time.time()
-                    job["process"] = None
-        except Exception as error:
-            with self.job_lock:
-                job = self.jobs[job_id]
-                job["status"] = "cancelled" if job["cancel_requested"] else "failed"
-                job["error"] = {
-                    "code": getattr(error, "code", ErrorCode.INTERNAL_EXCEPTION.name),
-                    "message": str(error),
-                }
-                job["finished_at"] = time.time()
-                job["process"] = None
-        finally:
-            if temporary is not None:
-                temporary.cleanup()
-
-    def run_status(self, job_id: str) -> dict[str, Any]:
-        with self.job_lock:
-            job = self.jobs.get(job_id)
-            if not job:
-                raise StudioError(ErrorCode.RUN_NOT_FOUND, job_id, 404)
-            public = {key: value for key, value in job.items() if key != "process"}
-        return json_result(True, job=public)
-
-    def cancel_run(self, job_id: str) -> dict[str, Any]:
-        with self.job_lock:
-            job = self.jobs.get(job_id)
-            if not job:
-                raise StudioError(ErrorCode.RUN_NOT_FOUND, job_id, 404)
-            if job["status"] in ("completed", "failed", "cancelled"):
-                return json_result(True, job_id=job_id, status=job["status"])
-            job["cancel_requested"] = True
-        # 运行线程执行终止和回收，HTTP 请求无需等待退出。
-        return json_result(True, job_id=job_id, status="cancelling")
-
-
 def make_handler(service: WorkbenchService):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args: Any, **kwargs: Any):
@@ -655,45 +264,22 @@ def make_handler(service: WorkbenchService):
             path = parsed.path
             query = parse_qs(parsed.query)
             body: dict[str, Any] = {}
-            if method in ("POST", "PUT", "DELETE"):
+            if method in ("POST", "PUT"):
                 body = self._body()
             if method == "GET" and path == "/api/catalog":
                 payload = service.catalog()
-            elif method == "GET" and path == "/api/assets":
-                payload = service.assets()
-            elif method == "POST" and path == "/api/selection":
-                payload = service.verify_selection(body.get("pipeline"), body.get("variant", ""), body.get("filename", ""))
             elif method == "GET" and path == "/api/pipelines":
                 payload = service.pipelines()
             elif method == "GET" and path == "/api/pipeline":
                 payload = service.open_pipeline(query.get("filename", [""])[0])
             elif method == "GET" and path == "/api/initial":
                 payload = service.initial_pipeline()
-            elif method == "GET" and path.startswith("/api/runs/"):
-                payload = service.run_status(path.rsplit("/", 1)[-1])
             elif method == "POST" and path == "/api/validate":
-                payload = service.validate(
-                    body.get("pipeline"), body.get("explain", False)
-                )
-            elif method == "POST" and path == "/api/fixes/preview":
-                payload = service.preview_fix(
-                    body.get("pipeline"),
-                    body.get("patch", []),
-                    body.get("revision"),
-                    body.get("tool_fingerprint"),
-                )
+                payload = service.validate(body.get("pipeline"))
             elif method == "POST" and path == "/api/authoring/preview":
                 payload = service.preview_authoring(body)
-            elif method == "POST" and path == "/api/preflight":
-                payload = service.preflight(
-                    body.get("pipeline"),
-                    profile_name=body.get("profile", ""),
-                )
             elif method == "POST" and path == "/api/init":
-
-                payload = service.init_pipeline(
-                    body.get("input"), body.get("output"), body.get("profile", "")
-                )
+                payload = service.init_pipeline(body.get("input"), body.get("output"))
             elif method == "POST" and path == "/api/pipelines":
                 payload = service.save_pipeline(
                     body.get("filename", ""), body.get("pipeline"), None, save_as=True
@@ -705,12 +291,6 @@ def make_handler(service: WorkbenchService):
                     body.get("revision"),
                     save_as=False,
                 )
-            elif method == "POST" and path == "/api/runs":
-                payload = service.start_run(
-                    body.get("pipeline"), body.get("profile", ""),
-                )
-            elif method == "DELETE" and path.startswith("/api/runs/"):
-                payload = service.cancel_run(path.rsplit("/", 1)[-1])
             else:
                 raise StudioError(ErrorCode.NOT_FOUND, path, 404)
             self._send(200, payload)
@@ -727,19 +307,13 @@ def make_handler(service: WorkbenchService):
         def do_PUT(self) -> None:
             self._respond("PUT")
 
-        def do_DELETE(self) -> None:
-            self._respond("DELETE")
-
         def _respond(self, method: str) -> None:
             try:
                 self._dispatch(method)
             except StudioError as error:
-                detail: Any = str(error)
-                if error.code == ErrorCode.VALIDATION_FAILED.name:
-                    detail = json.loads(str(error))
                 self._send(
                     error.status,
-                    json_result(False, error={"code": error.code, "message": detail}),
+                    json_result(False, error={"code": error.code, "message": str(error)}),
                 )
             except Exception as error:
                 self._send(
@@ -755,12 +329,14 @@ def make_handler(service: WorkbenchService):
 
 def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
     print(f"\nLLM-EdgeFlow Pipeline: {path}")
-    inputs, outputs = SELECTION.pipeline_io(pipeline)
-    pairs = lambda items: ", ".join(item["type"] + "/" + item["name"] for item in items)
+    io = pipeline.get("io") or {}
+    inputs, outputs = (io.get(side) or [] for side in ("input", "output"))
+    pair = lambda item: f"{item.get('type', 'unknown')}/{item.get('name', '<missing-name>')}"
+    pairs = lambda items: ", ".join(pair(item) for item in items)
     print(f"io: {pairs(inputs)} -> {pairs(outputs)}")
-    for model in pipeline.get("models", []):
+    for model in pipeline.get("models") or []:
         print(f"  model {model.get('name', '<missing-name>')}: {model.get('type', 'unknown')}"
-              f" / {model.get('backend', {}).get('type', 'unknown')} / {model.get('file', '')}")
+              f" / {(model.get('backend') or {}).get('type', 'unknown')} / {model.get('file', '')}")
     for index, node in enumerate(pipeline.get("pipeline", [])):
         name = node.get("name", "<missing-name>")
         print(f"  [{index}] {name}: {node.get('type', 'unknown')}")
@@ -768,7 +344,7 @@ def render_terminal(path: Path, pipeline: dict[str, Any]) -> None:
         print(f"      inputs: {mapping}")
         print(f"      depends_on: {json.dumps(node.get('depends_on', []), ensure_ascii=False)} (额外顺序)")
     for output in outputs:
-        print(f"  output {output['type']}/{output['name']}: "
+        print(f"  output {pair(output)}: "
               f"{json.dumps(output.get('inputs', {}), ensure_ascii=False)}")
     print()
 
@@ -777,7 +353,7 @@ def is_pipeline_document(value: Any) -> bool:
     return isinstance(value, dict) and isinstance(value.get("pipeline"), list)
 
 
-def read_pipeline_file(path: Path) -> dict[str, Any]:
+def read_pipeline_document(path: Path) -> tuple[bytes, dict[str, Any]]:
     if path.suffix.lower() != ".json" or not path.is_file():
         raise StudioError(ErrorCode.INVALID_PIPELINE_FILE, "请选择一个 Pipeline JSON 文件")
     try:
@@ -792,7 +368,11 @@ def read_pipeline_file(path: Path) -> dict[str, Any]:
         raise StudioError(ErrorCode.PIPELINE_READ_FAILED, f"无法读取方案文件：{error}") from error
     if not is_pipeline_document(pipeline):
         raise StudioError(ErrorCode.INVALID_PIPELINE_DOCUMENT, "方案必须是包含 pipeline 数组的 JSON 对象")
-    return pipeline
+    return raw, pipeline
+
+
+def read_pipeline_file(path: Path) -> dict[str, Any]:
+    return read_pipeline_document(path)[1]
 
 
 def launch_web(initial: Path | None, port: int) -> None:

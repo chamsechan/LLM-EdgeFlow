@@ -4,7 +4,6 @@
 
 #include "adapter/deployment_preparation.h"
 #include "core/pipeline_validator.h"
-#include "pipeline_remediation.h"
 
 namespace llm_edgeflow {
 
@@ -41,24 +40,7 @@ DocumentValidationResult ValidatePipelineDocument(
       PipelineValidator::ValidateParsedAndPlan(
           std::move(prepared.parsed_pipeline), prepared.io_boundary)
           .report;
-  auto report = AttachRemediation(prepared.neutral_pipeline_json,
-                                  *result.core_report, prepared.io_boundary);
-  if (mode == DocumentValidationMode::kExplain) {
-    report =
-        ExplainPipeline(document, std::move(report), [&](const auto& patched) {
-          auto validation = ValidatePipelineDocument(
-              patched, DocumentValidationMode::kValidate, pipeline_dir);
-          if (validation.core_report) return std::move(*validation.core_report);
-          ValidationReport failed;
-          ValidationDiagnostic diagnostic;
-          diagnostic.code = error::kInvalidCombination;
-          const auto& error = validation.response.at("diagnostics").at(0);
-          diagnostic.path = error.at("path").template get<std::string>();
-          diagnostic.message = error.at("message").template get<std::string>();
-          failed.diagnostics.push_back(std::move(diagnostic));
-          return failed;
-        });
-  }
+  const auto& report = *result.core_report;
   result.ok = report.ok;
   result.response = report.ToJson();
   if (mode == DocumentValidationMode::kPlan && report.ok)

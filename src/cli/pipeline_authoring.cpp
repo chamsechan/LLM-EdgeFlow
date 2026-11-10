@@ -99,13 +99,18 @@ struct ResolvedEndpoint {
 };
 
 ResolvedEndpoint ResolveEndpoint(nlohmann::json* pipeline,
-                                 const nlohmann::json& endpoint, bool source) {
+                                 const nlohmann::json& endpoint, bool source,
+                                 bool existing_binding = false) {
   ResolvedEndpoint result;
   result.node = endpoint.at("node").get<std::string>();
   result.port = endpoint.at("port").get<std::string>();
   if (result.node != "input" && result.node != "output") {
     auto* node = FindNode(pipeline, result.node);
     if (!node) throw std::invalid_argument("NODE_NOT_FOUND: " + result.node);
+    if (existing_binding) {
+      result.consumer = node;
+      return result;
+    }
     const auto type = node->value("type", "");
     const auto definition = PipelineCatalog::FindNode(type);
     if (!definition) throw std::invalid_argument("UNKNOWN_NODE_TYPE: " + type);
@@ -133,6 +138,17 @@ ResolvedEndpoint ResolveEndpoint(nlohmann::json* pipeline,
   nlohmann::json pairs = nlohmann::json::array();
   const auto& registry = IoConverterRegistry::Instance();
   for (auto& entry : *entries) {
+    if (existing_binding) {
+      const auto bindings = entry.find("inputs");
+      if (bindings != entry.end() && bindings->is_object() &&
+          bindings->contains(result.port)) {
+        if (result.consumer)
+          throw std::invalid_argument("AMBIGUOUS_OUTPUT_PORT: " +
+                                      result.Source());
+        result.consumer = &entry;
+      }
+      continue;
+    }
     RequireString(entry, "type");
     RequireString(entry, "name");
     const auto type = entry["type"].get<std::string>();
@@ -154,6 +170,7 @@ ResolvedEndpoint ResolveEndpoint(nlohmann::json* pipeline,
       if (!source) result.consumer = &entry;
     }
   }
+  if (existing_binding && result.consumer) return result;
   if (pairs.empty())
     throw std::invalid_argument("UNKNOWN_PORT: " + result.Source());
   if (pairs.size() > 1)
@@ -295,8 +312,16 @@ bool ApplyMutation(nlohmann::json* pipeline, const nlohmann::json& operation,
   }
 
   if (kind == "connect" || kind == "disconnect") {
-    const auto source = ResolveEndpoint(pipeline, operation["source"], true);
-    const auto target = ResolveEndpoint(pipeline, operation["target"], false);
+    // 断线只移除实际保存的引用，源节点或端口已经失效也应能清理。
+    const auto source =
+        kind == "connect"
+            ? ResolveEndpoint(pipeline, operation["source"], true)
+            : ResolvedEndpoint{operation["source"]["node"].get<std::string>(),
+                               operation["source"]["port"].get<std::string>(),
+                               {},
+                               nullptr};
+    const auto target = ResolveEndpoint(pipeline, operation["target"], false,
+                                        kind == "disconnect");
     if (kind == "connect") {
       if (source.contract.type_id != target.contract.type_id)
         throw std::invalid_argument(
@@ -355,6 +380,59 @@ bool ApplyMutation(nlohmann::json* pipeline, const nlohmann::json& operation,
   return true;
 }
 
+bool ApplyOperation(nlohmann::json* pipeline, const nlohmann::json& operation,
+                    std::vector<AuthoringChange>* changes, std::string* error,
+                    std::optional<DocumentValidationResult>* validation) {
+  validation->reset();
+  if (!pipeline || !pipeline->is_object() || !operation.is_object() ||
+      !pipeline->contains("pipeline") || !(*pipeline)["pipeline"].is_array()) {
+    if (error) *error = "无效的 pipeline 或 operation 对象";
+    return false;
+  }
+  CheckOperation(operation);
+  nlohmann::json candidate = *pipeline;
+  std::vector<AuthoringChange> staged_changes;
+  if (!ApplyMutation(&candidate, operation, &staged_changes, error))
+    return false;
+  const auto kind = operation["kind"].get<std::string>();
+  if (kind == "connect" || kind == "add_dependency") {
+    auto& document_validation = validation->emplace(
+        ValidatePipelineDocument(candidate, DocumentValidationMode::kValidate));
+    ValidationReport fallback_report;
+    const ValidationReport* graph_report = nullptr;
+    if (document_validation.core_report) {
+      graph_report = &*document_validation.core_report;
+    } else {
+      // I/O 或模型准备失败不应绕过拒环；依赖仍完全由 Core 推导。
+      ParsedPipelineConfig config;
+      PipelineDiagnostic diagnostic;
+      if (!ParsePipelineConfig({{"pipeline", candidate["pipeline"]}}, &config,
+                               &diagnostic)) {
+        if (error)
+          *error = std::string(ErrorCodeName(diagnostic.code)) + ": " +
+                   diagnostic.path + " " + diagnostic.message;
+        return false;
+      }
+      fallback_report =
+          PipelineValidator::ValidateParsedAndPlan(std::move(config), {})
+              .report;
+      graph_report = &fallback_report;
+    }
+    for (const auto& diagnostic : graph_report->diagnostics) {
+      if (diagnostic.code == error::kDagCycle) {
+        if (error) *error = "DAG_CYCLE: " + diagnostic.message;
+        return false;
+      }
+    }
+  }
+
+  if (changes)
+    changes->insert(changes->end(), staged_changes.begin(),
+                    staged_changes.end());
+  *pipeline = std::move(candidate);
+  return true;
+}
+
 }  // namespace
 
 nlohmann::json AuthoringChange::ToJson() const {
@@ -393,44 +471,6 @@ nlohmann::json AuthoringResult::ToJson() const {
     j["failed_operation_index"] = *failed_operation_index;
   }
   return j;
-}
-
-bool PipelineAuthoring::ApplyOperation(nlohmann::json* pipeline,
-                                       const nlohmann::json& operation,
-                                       std::vector<AuthoringChange>* changes,
-                                       std::string* error) {
-  if (!pipeline || !pipeline->is_object() || !operation.is_object() ||
-      !pipeline->contains("pipeline") || !(*pipeline)["pipeline"].is_array()) {
-    if (error) *error = "无效的 pipeline 或 operation 对象";
-    return false;
-  }
-  CheckOperation(operation);
-  nlohmann::json candidate = *pipeline;
-  std::vector<AuthoringChange> staged_changes;
-  if (!ApplyMutation(&candidate, operation, &staged_changes, error))
-    return false;
-  const auto kind = operation["kind"].get<std::string>();
-  if (kind == "connect" || kind == "add_dependency") {
-    const auto validation =
-        ValidatePipelineDocument(candidate, DocumentValidationMode::kValidate);
-    if (validation.core_report) {
-      const auto cycle =
-          std::find_if(validation.core_report->diagnostics.begin(),
-                       validation.core_report->diagnostics.end(),
-                       [](const auto& diagnostic) {
-                         return diagnostic.code == error::kDagCycle;
-                       });
-      if (cycle != validation.core_report->diagnostics.end()) {
-        if (error) *error = "DAG_CYCLE: " + cycle->message;
-        return false;
-      }
-    }
-  }
-  if (changes)
-    changes->insert(changes->end(), staged_changes.begin(),
-                    staged_changes.end());
-  *pipeline = std::move(candidate);
-  return true;
 }
 
 AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
@@ -499,11 +539,12 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
     }
 
     nlohmann::json working_pipeline = orig_pipeline;
+    std::optional<DocumentValidationResult> validation;
     for (size_t i = 0; i < operations.size(); ++i) {
       result.failed_operation_index = i;
       std::string err;
       if (!ApplyOperation(&working_pipeline, operations[i], &result.changes,
-                          &err)) {
+                          &err, &validation)) {
         result.ok = false;
         result.failed_operation_index = i;
         result.diagnostics.push_back(err);
@@ -513,8 +554,11 @@ AuthoringResult PipelineAuthoring::ApplyRequest(const nlohmann::json& request) {
     }
 
     result.failed_operation_index.reset();
-    auto val_res = ValidatePipelineDocument(working_pipeline,
-                                            DocumentValidationMode::kExplain);
+    // 最后一次增边已校验同一文档，无需再做完整校验。
+    auto val_res =
+        validation ? std::move(*validation)
+                   : ValidatePipelineDocument(
+                         working_pipeline, DocumentValidationMode::kValidate);
     result.validation = std::move(val_res.response);
 
     bool require_valid = request.value("require_valid", false);

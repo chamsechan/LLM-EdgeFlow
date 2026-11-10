@@ -15,19 +15,9 @@ export function modelBoundNodeIds(nodes = [], nodeDefinitions = []) {
 export const INGRESS = "input";
 export const EGRESS = "output";
 
-export function pipelineIo(pipeline) {
-  const pairs = direction => (pipeline?.io?.[direction] || []).map(({type, name}) => ({type, name}));
-  return {input: pairs("input"), output: pairs("output")};
-}
-
-export function ioLabel(io) {
-  const label = direction => (io?.[direction] || []).map(entry => `${entry.type}/${entry.name}`).join(", ") || "未选择";
-  return `${label("input")} → ${label("output")}`;
-}
-
 export function graphDocument(pipeline, catalog) {
   const nodes = pipeline?.pipeline || [];
-  const definitions = {};
+  const definitions = Object.create(null);
   for (const node of nodes) definitions[node.name] = catalog.nodes?.find(definition => definition.node_type === node.type) || {};
   const ports = direction => {
     const selected = (pipeline?.io?.[direction] || []).flatMap(entry => catalog[`${direction}_converters`]?.find(converter => converter.type === entry.type && converter.name === entry.name)?.logical_ports || []);
@@ -119,16 +109,4 @@ export function removeModel(pipeline, catalog, name) {
   });
   if (used) throw new Error("模型仍被节点使用，请先更换绑定");
   pipeline.models = pipeline.models.filter(model => model.name !== name);
-}
-
-export function assetModel(asset) {
-  const model = structuredClone(asset.model);
-  for (const [pointer, path] of Object.entries(asset.paths)) {
-    const parts = pointer.slice(1).split("/").map(part => part.replace(/~1/g, "/").replace(/~0/g, "~"));
-    const field = parts.pop();
-    let target = model;
-    for (const part of parts) target = target[part];
-    target[field] = path;
-  }
-  return model;
 }

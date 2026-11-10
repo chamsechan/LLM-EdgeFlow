@@ -4,7 +4,6 @@ import {readFile} from 'node:fs/promises';
 const web = new URL('../../tools/pipeline_studio/web/', import.meta.url);
 const load = async name => import(`data:text/javascript;base64,${Buffer.from(await readFile(new URL(name, web))).toString('base64')}`);
 const editor = await load('editor.js');
-const workflow = await load('workflow.js');
 
 // A small DOM carrier for exported renderers; browser interaction has its own consumer.
 class Element {
@@ -135,40 +134,14 @@ editor.restoreFormBuffer(form, snapshot);
 assert.deepEqual(editor.readFormBuffer(form), snapshot);
 
 const diagnostics = new Element('div');
-let selected, previewed, stopped = false;
-const fix = {title: '<script>title</script>', effect: 'literal', verification: 'pipeline_valid'};
+let selected;
 editor.appendDiagnostic(diagnostics, {
   code: 'MISSING', path: '/pipeline/0/inputs', message: '<img onerror=alert(1)>',
-  node_name: 'node', suggestions: ['<b>suggestion</b>'], remediation: {fixes: [fix]},
-}, name => selected = name, candidate => previewed = candidate);
+  node_name: 'node', port: 'text', suggestions: ['<b>suggestion</b>'],
+}, name => selected = name);
 const card = diagnostics.children[0];
 assert.equal(card.children[2].textContent, '<img onerror=alert(1)>');
 card.events.click();
 assert.equal(selected, 'node');
-const button = card.children.find(child => child.className === 'fix-candidate').children[1];
-button.events.click({stopPropagation() { stopped = true; }});
-assert.equal(previewed, fix);
-assert.equal(stopped, true);
-
-const state = {documentVersion: 7, pipeline: {pipeline: []}, filename: 'pipeline.json', profile: 'keyword'};
-const run = workflow.captureRun(state);
-assert.equal(workflow.runIsCurrent(run, {...state, pending: false}), true);
-assert.equal(workflow.runIsCurrent(run, {...state, pending: true}), false);
-assert.equal(workflow.runIsCurrent(run, {...state, documentVersion: 8}), false);
-state.pipeline.pipeline.push({name: 'changed'});
-assert.equal(JSON.parse(run.pipeline).pipeline.length, 0);
-assert.equal(workflow.runIsCurrent(run, state), false);
-const summary = workflow.runSummary({status: 'completed', result: {'summary.json': {
-  total_samples: 3, success_count: 2, failed_count: 1,
-}}});
-assert.match(summary, /成功 2 条/);
-assert.match(summary, /失败 1 条/);
-const samples = new Element('div');
-workflow.renderSamples(samples, {'results.jsonl': Array.from({length: 52}, () => ({status: 0, output: {text: '<img>'}}))});
-assert.equal(samples.children.length, 51);
-assert.equal(samples.children[0].open, true);
-assert.equal(samples.children[0].children[1].children[1].textContent, '<img>');
-assert.match(samples.children[50].textContent, /50 \/ 52/);
-workflow.renderSamples(samples, {});
-assert.equal(samples.children.length, 0);
-console.log('PASS Studio editor, drafts, diagnostics and run snapshots');
+assert.equal(card.children.some(child => child.tagName === 'BUTTON'), false);
+console.log('PASS Studio editor, drafts, lossless fields and native diagnostics');

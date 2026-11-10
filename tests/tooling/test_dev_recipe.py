@@ -150,6 +150,31 @@ class RecipeConsumerTest(unittest.TestCase):
         self.assertFalse(self.pipeline.exists())
 
 
+class SelectionEffectIdentityTest(unittest.TestCase):
+    def test_fingerprint_tracks_executed_demo_without_sdk_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = {"type": "json_out", "name": "keyword_match"}
+            (root / "spec.json").write_text(json.dumps({"dataset": "data.txt", "output": output}))
+            (root / "data.txt").write_text("sample")
+            (root / "pipeline.json").write_text(json.dumps({"io": {"output": [output]}}))
+            (root / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
+            demo = root / "alg_demo"
+            demo.write_bytes(b"first executable")
+
+            def fingerprint():
+                identity = recipe.VERIFY_SELECTION.effect_inputs(
+                    root / "spec.json", root / "pipeline.conf", demo, root)[3]
+                self.assertNotIn("sdk", identity)
+                return recipe.VERIFY_SELECTION.digest(identity)
+
+            before = fingerprint()
+            (root / "libllm_edgeflow_sdk.so").write_bytes(b"unrelated SDK")
+            self.assertEqual(fingerprint(), before)
+            demo.write_bytes(b"rebuilt executable")
+            self.assertNotEqual(fingerprint(), before)
+
+
 class FocusedRecipeTest(unittest.TestCase):
     def setUp(self):
         self.runner = TOOL.parent / 'edgeflow_test_nodes_runner'

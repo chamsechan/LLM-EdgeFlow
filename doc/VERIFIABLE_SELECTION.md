@@ -5,16 +5,16 @@
 
 ## 使用路径
 
-1. 在 Studio 的“模型”页选择“预设模型配置”，或手动填写模型配置。
+1. 在 Studio 的“模型配置”页填写模型实例，或编辑 Pipeline JSON。
 2. 选择 Backend 和模型实例。
 3. 将节点绑定到该模型实例。
 4. 连接业务输入、节点和业务输出。
 5. 应用配置修改。
-6. 点击“检查资产与构建选择”。
+6. 保存 JSON，按下文命令运行 `verify_selection.py check`。
 7. 在目标数据集上执行效果验收。
 
 资产检查以 Pipeline 目录为基准。受控方案使用 `configs/`。
-文件存在但未校验时，状态为 `present_unverified`。导入文档尚未保存时，状态为 `unverified`。
+文件存在但未校验时，状态为 `present_unverified`。
 只有匹配的效果证据也通过，工具才会给出 `ready_for_biz=true`。
 
 ## 替换模型后确认实际生效配置
@@ -40,8 +40,8 @@ Pipeline JSON 的 `models[].file` 和文件参数以 Pipeline JSON 所在目录�
 `effective_pipeline` 包含 Node/Model/Backend/Converter 生效参数和默认值，`output_pools` 按宿主槽位给出容量。
 非法部署字段、输出池容量和 Pipeline 会直接报错。此命令不加载权重，不证明业务效果。
 
-Studio 的“另存为可运行方案”和“运行当前方案”共用配置生成与原生预检，使用模型条目中已保存的
-路径。检查后用生成的命令运行样本，再执行下文效果验收。JSON 校验通过不能代替这一步。
+Studio 仅编辑并保存 JSON。按[运行当前方案](../tools/pipeline_studio/README.md#运行当前方案)
+准备 `.conf` 并调用 Demo，再执行下文效果验收。JSON 校验通过不能代替实际执行。
 
 ## 资产清单
 

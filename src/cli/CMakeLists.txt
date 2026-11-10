@@ -1,4 +1,4 @@
-# 基于 Validator 诊断的开发工具指引；不属于 SDK。
+# Pipeline 文档编辑与原生校验工具；不属于 SDK。
 file(GLOB_RECURSE EDGEFLOW_PIPELINE_TOOLING_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 list(REMOVE_ITEM EDGEFLOW_PIPELINE_TOOLING_SOURCES
@@ -14,4 +14,4 @@ target_link_libraries(alg_show PRIVATE
 
 add_executable(alg_pipeline_tool alg_pipeline_tool.cpp)
 target_link_libraries(alg_pipeline_tool PRIVATE
-  edgeflow_pipeline_tooling edgeflow_demo_profile_fields)
+  edgeflow_pipeline_tooling)

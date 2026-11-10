@@ -33,7 +33,7 @@ export function createDrafts() {
 
 // Validator 文本可能包含用户提供的标识符和值。按纯文本保留，
 // 同时保留诊断卡片提供的 Node 导航。
-export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
+export function appendDiagnostic(container, item, selectNode) {
   const block = document.createElement("div"); block.className = "diagnostic";
   const appendText = (tag, value) => {
     const element = document.createElement(tag); element.textContent = value;
@@ -45,37 +45,6 @@ export function appendDiagnostic(container, item, selectNode, onPreviewFix) {
   if (item.node_name) appendText("div", `节点：${item.node_name}`);
   if (item.port) appendText("div", `端口：${item.port}`);
   if (item.related_nodes?.length) appendText("div", `相关节点：${item.related_nodes.join("、")}`);
-  if (item.remediation) {
-    const rem = item.remediation;
-    if (rem.summary) appendText("div", `原因诊断：${rem.summary}`);
-    if (Array.isArray(rem.fixes) && rem.fixes.length > 0) {
-      const fixesTitle = document.createElement("div");
-      fixesTitle.className = "fixes-title";
-      fixesTitle.textContent = "可选修复操作：";
-      block.append(fixesTitle);
-      for (const fix of rem.fixes) {
-        const fixItem = document.createElement("div");
-        fixItem.className = "fix-candidate";
-        const fixDesc = document.createElement("span");
-        const badge = fix.verification === "pipeline_valid" ? "【通过验证】" : "【已解决该错误】";
-        fixDesc.textContent = `${badge} ${fix.title}：${fix.effect}`;
-        fixItem.append(fixDesc);
-        if (onPreviewFix) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "fix-apply-btn";
-          btn.textContent = "查看修复方案";
-          btn.style.marginLeft = "8px";
-          btn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            onPreviewFix(fix);
-          });
-          fixItem.append(btn);
-        }
-        block.append(fixItem);
-      }
-    }
-  }
   if (item.suggestions?.length) {
     appendText("div", "修复建议：");
     const list = document.createElement("ul");
@@ -117,6 +86,9 @@ export function appendConfigField(container, field, values, modelChoices = null)
   const present = Object.hasOwn(values, field.name);
   const value = present ? values[field.name] : field.default;
   const text = ["object", "array", "map", "json"].includes(field.type) ? (value === undefined ? "" : JSON.stringify(value)) : String(value ?? "");
+  if (input.tagName === "SELECT" && present && ![...input.children].some(option => option.value === text)) {
+    input.add(new Option(`${text}（当前值）`, text));
+  }
   input.value = text;
   if (!present) {
     if (input.dataset.unsetOption === "true") input.value = "";

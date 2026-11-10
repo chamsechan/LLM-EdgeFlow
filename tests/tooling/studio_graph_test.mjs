@@ -53,22 +53,22 @@ assert.equal(siblings.short.y - siblings.tall.y, 248);
 const duplicateOrder = graph.layeredPositions([{id: 'a'}, {id: 'b', depends_on: ['a', 'a', 'absent']}]);
 assert.equal(duplicateOrder.b.x - duplicateOrder.a.x, 356);
 
-const source = {x: 0, y: 100}, target = {x: 500, y: 100};
-const obstacle = {x: 200, y: 50, width: 100, height: 100};
-const route = graph.routeOrthogonal(source, target, [obstacle]);
-assert.deepEqual(route[0], source);
-assert.deepEqual(route.at(-1), target);
-assert.ok(route.length > 2);
-for (let index = 1; index < route.length; index++) {
-  const a = route[index - 1], b = route[index];
-  assert.ok(a.x === b.x || a.y === b.y, 'every route segment is orthogonal');
-  if (a.x === b.x) {
-    assert.ok(!(a.x > 200 && a.x < 300 && Math.max(a.y, b.y) > 50 && Math.min(a.y, b.y) < 150));
-  } else {
-    assert.ok(!(a.y > 50 && a.y < 150 && Math.max(a.x, b.x) > 200 && Math.min(a.x, b.x) < 300));
+// 折线保持端点与端口方向；反向和相邻端口也必须可见。
+const source = {x: 0, y: 100};
+for (const target of [{x: 500, y: 100}, {x: 500, y: 180}, {x: -100, y: 100}, {x: 0, y: 180}]) {
+  const route = graph.routeOrthogonal(source, target);
+  assert.deepEqual(route[0], source);
+  assert.deepEqual(route.at(-1), target);
+  assert.ok(route.length <= 6);
+  assert.ok(route[1].x > source.x);
+  assert.ok(route.at(-2).x < target.x);
+  for (let index = 1; index < route.length; index++) {
+    const a = route[index - 1], b = route[index];
+    assert.ok(a.x === b.x || a.y === b.y, 'every route segment is orthogonal');
+    assert.ok(Number.isFinite(b.x) && Number.isFinite(b.y));
   }
 }
-assert.deepEqual(graph.routeOrthogonal(source, target, []), [source, target]);
+assert.deepEqual(graph.routeOrthogonal(source, {x: 500, y: 100}), [source, {x: 500, y: 100}]);
 const bounds = graph.graphBounds({node: {x: 10, y: 20}, invalid: {x: NaN, y: Infinity}}, {}, [[{x: -50, y: -30}]]);
 assert.deepEqual(bounds, {x: -50, y: -30, width: 340, height: 126});
 assert.deepEqual(graph.graphBounds({}), {x: 0, y: 0, width: 0, height: 0});
@@ -107,4 +107,17 @@ assert.equal(view.scale, 1);
 view.focusNode('a');
 assert.equal((view.positions.a.x + 140) * view.scale + view.offset.x, 400);
 assert.ok(notifications.some(([name]) => name === 'transform'));
+// 用户节点名可以与对象原型成员同名；恢复布局时只保留已有的自有位置。
+const namedNodes = ['constructor', '__proto__', 'toString'].map(id => ({id}));
+const namedPositions = graph.layeredPositions(namedNodes);
+view.positions = JSON.parse('{"constructor":{"x":900,"y":700}}');
+view.sizes = {};
+view.layout(namedNodes);
+assert.deepEqual(view.positions.constructor, {x: 900, y: 700});
+for (const {id} of namedNodes) {
+  for (const positions of [namedPositions, view.positions]) {
+    assert.equal(Object.hasOwn(positions, id), true);
+    assert.ok(Number.isFinite(positions[id].x) && Number.isFinite(positions[id].y));
+  }
+}
 console.log('PASS Studio graph document, geometry, routes and view transforms');
