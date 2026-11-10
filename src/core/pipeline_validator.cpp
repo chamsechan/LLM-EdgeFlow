@@ -14,7 +14,6 @@
 #include "core/pipeline_config.h"
 #include "engine/backend_registry.h"
 #include "engine/model_registry.h"
-#include "name_suggestions.h"
 #include "pipeline_config_structure.h"
 
 namespace llm_edgeflow {
@@ -203,8 +202,6 @@ bool ValidateAndNormalizeConfig(
           for (const auto& field : *fields)
             diag.suggestions.push_back(field.name);
         }
-        diag.suggestions =
-            RankByEditDistance(pointer.back(), std::move(diag.suggestions));
       }
       diagnostics->push_back(std::move(diag));
     }
@@ -361,8 +358,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
       unresolved_model_names.insert(model.model_name);
       Add(&report, error::kUnknownModelType, at + "/type",
           "Unknown model type: " + model.model_type, {}, {}, {},
-          RankByEditDistance(model.model_type, {registered_model_types.begin(),
-                                                registered_model_types.end()}));
+          {registered_model_types.begin(), registered_model_types.end()});
       continue;
     }
     // 即使选不出对应的 Backend，也记录请求的模型类别。
@@ -377,8 +373,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     if (!backend) {
       Add(&report, error::kUnknownBackend, at + "/backend/type",
           "Unknown backend: " + model.backend_type, {}, {}, {},
-          RankByEditDistance(model.backend_type,
-                             std::move(compatible_backends)));
+          std::move(compatible_backends));
       continue;
     }
     const auto selected =
@@ -449,13 +444,10 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     const auto* definition = catalog.FindNode(node.node_type);
     if (!definition) {
       has_unknown_nodes = true;
-      std::vector<std::string> node_types;
-      for (const auto& def : catalog.nodes) node_types.push_back(def.node_type);
       Add(&report, error::kUnknownNodeType,
           "/pipeline/" + std::to_string(node.source_index) + "/type",
           "Unknown node_type or missing catalog definition: " + node.node_type,
-          node.name, {}, {},
-          NearestNames(node.node_type, std::move(node_types)));
+          node.name);
       continue;
     }
     def_by_name[node.name] = definition;
@@ -543,11 +535,8 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
     }
     const auto name = source_name(key);
     if (name != "input" && !node_by_name.count(name)) {
-      std::vector<std::string> names{"input"};
-      for (const auto& node : nodes) names.push_back(node.name);
       Add(&report, error::kUnknownNodeReference, path,
-          "Unknown source node: " + name, consumer, port, {},
-          NearestNames(name, std::move(names)));
+          "Unknown source node: " + name, consumer, port);
       return nullptr;
     }
     if (name != "input" && !def_by_name.count(name)) return nullptr;

@@ -9,7 +9,6 @@
 #include "adapter/pipeline_document.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/error_codes.h"
-#include "core/name_suggestions.h"
 #include "core/pipeline_config.h"
 
 namespace llm_edgeflow {
@@ -46,19 +45,11 @@ bool ParseParameters(const ParameterSet& declaration,
 std::string UnknownConverter(const IoEntryConfig& entry, bool input) {
   auto message = "Unknown converter: " + entry.type + "/" + entry.name;
   const auto append = [&](const auto& registered) {
-    std::set<std::string> types;
-    bool known_type = false;
     for (const auto& def : registered) {
-      types.insert(def.type);
       if (def.type == entry.type) {
-        known_type = true;
         message += "; registered name: " + def.name;
       }
     }
-    if (!known_type)
-      for (const auto& type :
-           NearestNames(entry.type, {types.begin(), types.end()}))
-        message += "; suggested type: " + type;
   };
   if (input)
     append(IoConverterRegistry::Instance().AllInputConverters());

@@ -286,6 +286,27 @@ TEST_F(IoParametersTest,
   }
 }
 
+TEST_F(IoParametersTest,
+       UnknownConverterTypesReportExactSelectionWithoutGuesses) {
+  for (const auto* direction : {"input", "output"}) {
+    SCOPED_TRACE(direction);
+    auto document = KeywordDeployment();
+    const std::string type =
+        std::string(direction) == "input" ? "keyword_i" : "json_ou";
+    document["io"][direction][0]["type"] = type;
+    PreparedDeployment prepared;
+    DeploymentDiagnostic diagnostic;
+    EXPECT_FALSE(
+        PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
+    EXPECT_EQ(diagnostic.code, error::kUnknownConverter);
+    EXPECT_EQ(diagnostic.path, std::string("/io/") + direction + "/0");
+    EXPECT_EQ(diagnostic.message,
+              "Unknown converter: " + type + "/keyword_match");
+    EXPECT_TRUE(prepared.inputs.empty());
+    EXPECT_TRUE(prepared.outputs.empty());
+  }
+}
+
 TEST_F(
     IoParametersTest,
     OutputCapacityInheritsNativeHardLimitAndPreparedDepthCannotChangeAtCreate) {
