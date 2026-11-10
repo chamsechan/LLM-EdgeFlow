@@ -253,14 +253,11 @@ def prepare(recipe, name, profile_name, tool_path, build_dir, pipeline_target, r
         if recipe == "text-llm-node":
             if not re.fullmatch(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*", name):
                 raise RecipeError("Node type must be a snake_case identifier")
-        _, source_conf, _ = get_profile_data(profile_name, root)
+        _, source_conf, source_pipeline = get_profile_data(profile_name, root)
         tool, build, demo = tool_context(tool_path, build_dir, root)
         outputs = require_deployment(source_conf, tool, root)
         catalog = native(tool, ["catalog"], root)
-        profile = next((p for p in catalog["profiles"] if p["name"] == profile_name), None)
-        if profile is None or absolute(profile["config"], root) != source_conf:
-            raise RecipeError("Profile is not available in the selected executable Catalog")
-        pipeline = native(tool, ["init", "--profile", profile_name], root)["pipeline"]
+        pipeline = read_json_file(source_pipeline)
         native(tool, ["validate", "--stdin"], root, pipeline)
         deployment_preview = copy.deepcopy(pipeline)
         target = absolute(pipeline_target, root)

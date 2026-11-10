@@ -8,7 +8,7 @@
 
 namespace llm_edgeflow {
 
-enum class DocumentValidationMode { kValidate, kExplain, kPlan };
+enum class DocumentValidationMode { kValidate, kPlan };
 
 struct DocumentValidationResult {
   bool ok = false;

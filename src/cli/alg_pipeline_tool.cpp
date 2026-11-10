@@ -4,11 +4,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <set>
 #include <string>
 
-#include "adapter/deployment_io_config.h"
 #include "adapter/io_catalog.h"
 #include "adapter/io_converter_registry.h"
 #include "adapter/io_plan_resolver.h"
@@ -17,8 +15,6 @@
 #include "contracts/error_codes.h"
 #include "contracts/json_pointer.h"
 #include "core/pipeline_catalog.h"
-#include "demo/common/demo_profile_defaults.h"
-#include "demo/common/demo_profile_fields.h"
 #include "edgeflow/log.h"
 #include "edgeflow/operator/interface.h"
 #include "engine/model_registry.h"
@@ -119,54 +115,6 @@ bool ReadJson(const std::string& path, nlohmann::json* output,
     if (error) *error = exception.what();
     return false;
   }
-}
-
-std::optional<fs::path> ProfilePipeline(const Json& profile) {
-  llm_edgeflow::DeploymentIoConfig config;
-  std::string error;
-  if (!profile.contains("config") || !profile["config"].is_string() ||
-      !llm_edgeflow::DeploymentIoConfig::ReadFromFile(
-          profile["config"].get<std::string>(), &config, &error))
-    return std::nullopt;
-  return fs::path(config.resolved_pipe_path);
-}
-
-Json IoPairs(const Json& pipeline) {
-  auto result = Json::object();
-  for (const auto* side : {"input", "output"}) {
-    result[side] = Json::array();
-    for (const auto& entry : pipeline.at("io").at(side))
-      result[side].push_back(
-          {{"type", entry.at("type")}, {"name", entry.at("name")}});
-  }
-  return result;
-}
-
-Json ProfilesJson(std::string* error) {
-  auto result = Json::array();
-  std::ifstream stream("demo/profiles.json");
-  if (!stream.is_open()) return result;
-  try {
-    const auto root = nlohmann::ordered_json::parse(stream);
-    for (const auto& [name, profile] : root.at("profiles").items()) {
-      std::string fields_error;
-      if (!alg_demo::ValidateProfileFields(profile, &fields_error)) {
-        *error = "Profile '" + name + "': " + fields_error;
-        return Json::array();
-      }
-      const auto path = ProfilePipeline(profile);
-      Json pipeline;
-      std::string read_error;
-      if (!path || !ReadJson(path->string(), &pipeline, &read_error)) continue;
-      Json item = profile;
-      item["name"] = name;
-      item["io"] = IoPairs(pipeline);
-      result.push_back(std::move(item));
-    }
-  } catch (const std::exception& exception) {
-    *error = exception.what();
-  }
-  return result;
 }
 
 Json IoJson(const llm_edgeflow::ValidatedIoPlan& plan) {
@@ -275,26 +223,6 @@ Json ResolveConf(const std::string& file, const std::string& root,
             {"output_pools", OutputPoolsJson(io_plan)}}}};
 }
 
-Json Edges(const Json& document) {
-  auto edges = Json::array();
-  for (const auto& node : document.at("pipeline")) {
-    const auto inputs = node.value("inputs", Json::object());
-    for (const auto& [port, source] : inputs.items())
-      edges.push_back(
-          {{"source", source},
-           {"target", node.at("name").get<std::string>() + "." + port}});
-  }
-  for (const auto& entry : document.at("io").at("output")) {
-    const auto inputs = entry.value("inputs", Json::object());
-    for (const auto& [port, source] : inputs.items())
-      edges.push_back({{"source", source},
-                       {"target", "output." + port},
-                       {"converter", entry.at("type").get<std::string>() + "/" +
-                                         entry.at("name").get<std::string>()}});
-  }
-  return edges;
-}
-
 void Usage() {
   std::cerr
       << "Usage:\n"
@@ -305,9 +233,8 @@ void Usage() {
       << "  alg_pipeline_tool describe-backend TYPE\n"
       << "  alg_pipeline_tool init --input TYPE/NAME --output TYPE/NAME "
          "[--raw]\n"
-      << "  alg_pipeline_tool init --profile NAME [--raw]\n"
-      << "  alg_pipeline_tool validate FILE|--stdin [--explain]\n"
-      << "  alg_pipeline_tool plan FILE|--stdin [--explain]\n"
+      << "  alg_pipeline_tool validate FILE|--stdin\n"
+      << "  alg_pipeline_tool plan FILE|--stdin\n"
       << "  alg_pipeline_tool validate-io CONFIG\n"
       << "  alg_pipeline_tool resolve-conf FILE [--root DIR] [--depth N]\n"
       << "  alg_pipeline_tool edit --stdin\n";
@@ -351,9 +278,6 @@ int Run(int argc, char* argv[]) {
       return 0;
     }
     auto result = llm_edgeflow::IoCatalog::ToJson(snapshot);
-    std::string error;
-    result["profiles"] = ProfilesJson(&error);
-    if (!error.empty()) return Print(ToolError(error::kInvalidProfile, error));
     result["ok"] = true;
     return Print(result);
   }
@@ -416,7 +340,6 @@ int Run(int argc, char* argv[]) {
         {"io", {{"input", Json::array()}, {"output", Json::array()}}},
         {"models", Json::array()},
         {"pipeline", Json::array()}};
-    std::string profile;
     bool raw = false;
     for (int i = 2; i < argc; ++i) {
       const std::string option = argv[i];
@@ -429,9 +352,7 @@ int Run(int argc, char* argv[]) {
         return 2;
       }
       const std::string value = argv[++i];
-      if (option == "--profile" && profile.empty())
-        profile = value;
-      else if (option == "--input" || option == "--output") {
+      if (option == "--input" || option == "--output") {
         const auto split = value.find('/');
         if (split == 0 || split == std::string::npos ||
             split + 1 == value.size() ||
@@ -453,24 +374,7 @@ int Run(int argc, char* argv[]) {
       }
     }
     const auto& io = pipeline["io"];
-    if (!profile.empty()) {
-      if (!io["input"].empty() || !io["output"].empty()) {
-        Usage();
-        return 2;
-      }
-      Json profiles;
-      std::string error;
-      if (!ReadJson("demo/profiles.json", &profiles, &error) ||
-          !profiles.at("profiles").contains(profile))
-        return Print(ToolError(error::kUnknownProfile, profile));
-      const auto& selected = profiles["profiles"][profile];
-      if (!alg_demo::ValidateProfileFields(selected, &error))
-        return Print(ToolError(error::kInvalidProfile, error));
-      const auto path = ProfilePipeline(selected);
-      if (!path || !ReadJson(path->string(), &pipeline, &error))
-        return Print(
-            ToolError(error::kUnknownProfile, error.empty() ? profile : error));
-    } else if (io["input"].empty() || io["output"].empty()) {
+    if (io["input"].empty() || io["output"].empty()) {
       Usage();
       return 2;
     }
@@ -481,24 +385,12 @@ int Run(int argc, char* argv[]) {
     return Print({{"ok", true}, {"pipeline", std::move(pipeline)}});
   }
   if (command == "validate" || command == "plan") {
-    if (argc < 3 || argc > 4) {
+    if (argc != 3) {
       Usage();
       return 2;
     }
-    std::string file;
-    bool explain = false;
-    for (int i = 2; i < argc; ++i) {
-      const std::string option = argv[i];
-      if (option == "--explain" && !explain)
-        explain = true;
-      else if (file.empty() && (option == "--stdin" || option[0] != '-'))
-        file = option;
-      else {
-        Usage();
-        return 2;
-      }
-    }
-    if (file.empty()) {
+    const std::string file = argv[2];
+    if (file.empty() || (file[0] == '-' && file != "--stdin")) {
       Usage();
       return 2;
     }
@@ -508,15 +400,12 @@ int Run(int argc, char* argv[]) {
       return Print(ToolError(error::kJsonRead, error));
     using llm_edgeflow::DocumentValidationMode;
     const auto mode = command == "plan" ? DocumentValidationMode::kPlan
-                      : explain         ? DocumentValidationMode::kExplain
                                         : DocumentValidationMode::kValidate;
     const auto directory = file == "--stdin"
                                ? std::string{}
                                : fs::absolute(file).parent_path().string();
     auto result =
         llm_edgeflow::ValidatePipelineDocument(document, mode, directory);
-    if (command == "plan" && explain && result.ok)
-      result.response["plan"]["edges"] = Edges(document);
     PrintRegistrationHint(result.response);
     return Print(result.response);
   }

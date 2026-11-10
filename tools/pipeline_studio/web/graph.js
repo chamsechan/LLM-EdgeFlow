@@ -45,10 +45,10 @@ export function layeredPositions(nodes, sizes = {}) {
     if (!layers.has(depth)) layers.set(depth, []);
     layers.get(depth).push(node);
   }
-  const height = node => (sizes[node.id] || nodeSize()).height;
+  const height = node => (Object.hasOwn(sizes, node.id) ? sizes[node.id] : nodeSize()).height;
   const totalHeight = layer => layer.reduce((sum, node) => sum + height(node), 0) + Math.max(0, layer.length - 1) * 48;
   const maxHeight = Math.max(0, ...[...layers.values()].map(totalHeight));
-  const positions = {};
+  const positions = Object.create(null);
   for (const [depth, layer] of [...layers].sort(([a], [b]) => a - b)) {
     const parentCenter = node => {
       const parents = (node.depends_on || []).filter(id => positions[id]);
@@ -67,7 +67,7 @@ export function layeredPositions(nodes, sizes = {}) {
 export function graphBounds(positions, sizes = {}, routes = []) {
   const points = [];
   for (const [id, position] of Object.entries(positions)) {
-    const size = sizes[id] || nodeSize();
+    const size = Object.hasOwn(sizes, id) ? sizes[id] : nodeSize();
     points.push(position, { x: position.x + size.width, y: position.y + size.height });
   }
   for (const route of routes) points.push(...route);
@@ -89,96 +89,18 @@ export function zoomTransform(scale, offset, nextScale, anchor) {
   return { scale: nextScale, offset: { x: anchor.x - (anchor.x - offset.x) * ratio, y: anchor.y - (anchor.y - offset.y) * ratio } };
 }
 
-function segmentBlocked(a, b, rectangles) {
-  return rectangles.some(rect => a.x === b.x
-    ? a.x > rect.left && a.x < rect.right && Math.max(a.y, b.y) > rect.top && Math.min(a.y, b.y) < rect.bottom
-    : a.y > rect.top && a.y < rect.bottom && Math.max(a.x, b.x) > rect.left && Math.min(a.x, b.x) < rect.right);
-}
-
-function simplify(points) {
-  const result = [];
-  for (const point of points) {
-    const previous = result.at(-1);
-    if (previous && previous.x === point.x && previous.y === point.y) continue;
-    const before = result.at(-2);
-    if (before && ((before.x === previous.x && previous.x === point.x) || (before.y === previous.y && previous.y === point.y))) result.pop();
-    result.push(point);
+// 端口间使用固定折线；反向连接为端口留出水平出入空间。
+export function routeOrthogonal(source, target, lane = 0) {
+  if (target.x > source.x) {
+    if (source.y === target.y) return [source, target];
+    const x = (source.x + target.x) / 2;
+    return [source, { x, y: source.y }, { x, y: target.y }, target];
   }
-  return result;
-}
-
-// 可见性网格让水平/垂直线段绕开加了边距的 Node 矩形。
-// 方向是搜索状态的一部分，因此较短但曲折的路径会输给整洁的路径。
-export function routeOrthogonal(source, target, obstacles, lane = 0) {
-  const clearance = 12 + lane % 3 * 4;
-  const start = { x: source.x + clearance + 10, y: source.y };
-  const end = { x: target.x - clearance - 10, y: target.y };
-  const rectangles = obstacles.map(rect => ({ left: rect.x - clearance, right: rect.x + rect.width + clearance, top: rect.y - clearance, bottom: rect.y + rect.height + clearance }));
-  if (start.x <= end.x && source.y === target.y && !segmentBlocked(start, end, rectangles)) return [source, target];
-  const xs = [...new Set([start.x, end.x, ...rectangles.flatMap(rect => [rect.left, rect.right])])].sort((a, b) => a - b);
-  const ys = [...new Set([start.y, end.y, ...rectangles.flatMap(rect => [rect.top, rect.bottom])])].sort((a, b) => a - b);
-  const nx = xs.length, ny = ys.length;
-  const startIndex = ys.indexOf(start.y) * nx + xs.indexOf(start.x);
-  const endIndex = ys.indexOf(end.y) * nx + xs.indexOf(end.x);
-  const pointAt = index => ({ x: xs[index % nx], y: ys[Math.floor(index / nx)] });
-  const startState = startIndex * 2; // 水平的起止短线
-  const costs = new Map([[startState, 0]]), parents = new Map();
-  const heap = [];
-  const push = entry => {
-    heap.push(entry);
-    let index = heap.length - 1;
-    while (index > 0) {
-      const parent = (index - 1) >> 1;
-      if (heap[parent].priority <= entry.priority) break;
-      heap[index] = heap[parent]; index = parent;
-    }
-    heap[index] = entry;
-  };
-  const pop = () => {
-    const first = heap[0], last = heap.pop();
-    if (heap.length) {
-      let index = 0;
-      while (index * 2 + 1 < heap.length) {
-        let child = index * 2 + 1;
-        if (child + 1 < heap.length && heap[child + 1].priority < heap[child].priority) child++;
-        if (heap[child].priority >= last.priority) break;
-        heap[index] = heap[child]; index = child;
-      }
-      heap[index] = last;
-    }
-    return first;
-  };
-  push({ state: startState, cost: 0, priority: 0 });
-  let finalState;
-  while (heap.length) {
-    const current = pop();
-    if (current.cost !== costs.get(current.state)) continue;
-    const index = Math.floor(current.state / 2), direction = current.state % 2;
-    if (index === endIndex) { finalState = current.state; break; }
-    const a = pointAt(index), x = index % nx, y = Math.floor(index / nx);
-    const neighbors = [];
-    if (x > 0) neighbors.push([index - 1, 0]);
-    if (x + 1 < nx) neighbors.push([index + 1, 0]);
-    if (y > 0) neighbors.push([index - nx, 1]);
-    if (y + 1 < ny) neighbors.push([index + nx, 1]);
-    for (const [next, nextDirection] of neighbors) {
-      const b = pointAt(next);
-      if (segmentBlocked(a, b, rectangles)) continue;
-      const state = next * 2 + nextDirection;
-      const cost = current.cost + Math.abs(b.x - a.x) + Math.abs(b.y - a.y) + (direction === nextDirection ? 0 : 24);
-      if (cost >= (costs.get(state) ?? Infinity)) continue;
-      costs.set(state, cost); parents.set(state, current.state);
-      push({ state, cost, priority: cost + Math.abs(b.x - end.x) + Math.abs(b.y - end.y) });
-    }
-  }
-  if (finalState === undefined) {
-    // 手动重叠的卡片可能把端口完全遮住，此时仍保持该连线可见。
-    const y = Math.min(source.y, target.y, ...rectangles.map(rect => rect.top)) - 24;
-    return simplify([source, start, { x: start.x, y }, { x: end.x, y }, end, target]);
-  }
-  const reversed = [];
-  for (let state = finalState; state !== undefined; state = parents.get(state)) reversed.push(pointAt(Math.floor(state / 2)));
-  return simplify([source, ...reversed.reverse(), target]);
+  const gap = 24 + lane % 3 * 8;
+  const start = { x: source.x + gap, y: source.y };
+  const end = { x: target.x - gap, y: target.y };
+  const y = Math.min(source.y, target.y) - gap;
+  return [source, start, { x: start.x, y }, { x: end.x, y }, end, target];
 }
 
 function edgeKey(binding) {
@@ -204,8 +126,8 @@ export class GraphView {
     this.nodeLayer = root.querySelector("#nodes");
     this.draftEdge = root.querySelector("#draftEdge");
     this.callbacks = callbacks;
-    this.positions = {};
-    this.sizes = {};
+    this.positions = Object.create(null);
+    this.sizes = Object.create(null);
     this.routes = [];
     this.scale = 1;
     this.offset = { x: 0, y: 0 };
@@ -306,6 +228,7 @@ export class GraphView {
   }
 
   layout(nodes, force = false) {
+    if (Object.getPrototypeOf(this.positions) !== null) this.positions = Object.assign(Object.create(null), this.positions);
     const nodeIds = new Set(nodes.map(node => node.id));
     let positionsChanged = false;
     for (const id of Object.keys(this.positions)) {
@@ -347,7 +270,6 @@ export class GraphView {
     }
     this.definitions = definitions;
     this.edges = edges;
-    this.nodes = nodes;
     this.selectedEdge = selectedEdge;
     this.sizes = Object.fromEntries(nodes.map(node => [node.id, nodeSize(definitions[node.id])]));
     this.layout(nodes);
@@ -370,13 +292,12 @@ export class GraphView {
   renderEdges() {
     this.edgeLayer.replaceChildren();
     this.routes = [];
-    const obstacles = Object.entries(this.positions).map(([id, position]) => ({ ...position, ...(this.sizes[id] || nodeSize()) }));
     for (const [index, binding] of (this.edges || []).entries()) {
       const from = this.positions[binding.source], to = this.positions[binding.target];
       if (!from || !to) continue;
       const y1 = binding.dependency ? 34 : this.portY(binding.source, "outputs", binding.sourcePort);
       const y2 = binding.dependency ? 34 : this.portY(binding.target, "inputs", binding.targetPort);
-      const route = routeOrthogonal({ x: from.x + WIDTH, y: from.y + y1 }, { x: to.x, y: to.y + y2 }, obstacles, index);
+      const route = routeOrthogonal({ x: from.x + WIDTH, y: from.y + y1 }, { x: to.x, y: to.y + y2 }, index);
       this.routes.push(route);
       const d = route.map((point, i) => `${i ? "L" : "M"}${point.x},${point.y}`).join(" ");
       const group = svg("g", { class: `edge${binding.dependency ? " dependency" : ""}${edgeKey(binding) === edgeKey(this.selectedEdge) ? " selected" : ""}`, tabindex: 0, role: "button", "aria-label": `${binding.source} ${binding.sourcePort || ""} → ${binding.target} ${binding.targetPort || "执行依赖"}` });

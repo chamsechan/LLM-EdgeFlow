@@ -69,8 +69,8 @@ set_tests_properties(contract/architecture/test_diagram_render_gate.sh PROPERTIE
 set_tests_properties(tooling/test_json_prompt_demo.py PROPERTIES
   LABELS "tier3;tooling;dev-fast;sanitizer-compatible"
   ENVIRONMENT "LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")
-set_tests_properties(tooling/test_pipeline_studio.py tooling/test_dev_recipe.py PROPERTIES
+set_tests_properties(tooling/test_pipeline_studio.py PROPERTIES
+  ENVIRONMENT "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>")
+set_tests_properties(tooling/test_dev_recipe.py PROPERTIES
   ENVIRONMENT
-    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_SELECTION_TOOL=$<TARGET_FILE:alg_pipeline_tool>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>;LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
-set_tests_properties(tooling/test_pipeline_cli.py PROPERTIES
-  ENVIRONMENT "LLM_EDGEFLOW_ALG_SHOW=$<TARGET_FILE:alg_show>")
+    "LLM_EDGEFLOW_PIPELINE_TOOL=$<TARGET_FILE:alg_pipeline_tool_test>;LLM_EDGEFLOW_DEMO_BINARY=$<TARGET_FILE:alg_demo>")

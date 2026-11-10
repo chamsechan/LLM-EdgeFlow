@@ -10,11 +10,9 @@ import json
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
-import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -26,38 +24,12 @@ studio = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(studio)
 
 
-class SelectionEffectIdentityTest(unittest.TestCase):
-    def test_fingerprint_tracks_executed_demo_without_sdk_dependency(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            output = {"type": "json_out", "name": "keyword_match"}
-            (root / "spec.json").write_text(json.dumps({"dataset": "data.txt", "output": output}))
-            (root / "data.txt").write_text("sample")
-            (root / "pipeline.json").write_text(json.dumps({"io": {"output": [output]}}))
-            (root / "pipeline.conf").write_text(json.dumps({"pipe_path": "pipeline.json"}))
-            demo = root / "alg_demo"
-            demo.write_bytes(b"first executable")
-
-            def fingerprint():
-                identity = studio.SELECTION.effect_inputs(
-                    root / "spec.json", root / "pipeline.conf", demo, root)[3]
-                self.assertNotIn("sdk", identity)
-                return studio.SELECTION.digest(identity)
-
-            before = fingerprint()
-            (root / "libllm_edgeflow_sdk.so").write_bytes(b"unrelated SDK")
-            self.assertEqual(fingerprint(), before)
-            demo.write_bytes(b"rebuilt executable")
-            self.assertNotEqual(fingerprint(), before)
-
-
 class StudioHttpContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not studio.PIPELINE_TOOL.is_file():
             raise RuntimeError(f"Set LLM_EDGEFLOW_PIPELINE_TOOL to a built native tool: {studio.PIPELINE_TOOL}")
         cls.base = json.loads((ROOT / "configs/pipeline_keyword_match_rules.json").read_text())
-        cls.profile = json.loads((ROOT / "demo/profiles.json").read_text())["profiles"]["keyword_match_rules"]
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="studio-contract-")
@@ -65,12 +37,8 @@ class StudioHttpContractTest(unittest.TestCase):
         self.root = Path(self.temporary.name).resolve()
         self.configs = self.root / "configs"
         self.configs.mkdir()
-        (self.root / "demo").mkdir()
-        (self.root / "data").mkdir()
-        (self.root / "demo/profiles.json").write_text(json.dumps({"profiles": {"keyword_match_rules": self.profile}}))
         shutil.copy(ROOT / "configs/pipeline_keyword_match_rules.json", self.configs)
         shutil.copy(ROOT / "configs/pipeline_keyword_match_rules.conf", self.configs)
-        shutil.copy(ROOT / "data/corpus_keyword_match.txt", self.root / "data")
         self.root_patch = mock.patch.object(studio, "PROJECT_ROOT", self.root)
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
@@ -111,6 +79,7 @@ class StudioHttpContractTest(unittest.TestCase):
         status, catalog = self.request("GET", "/api/catalog")
         self.assertEqual(status, 200)
         self.assertTrue(any(node["node_type"] == "text_rule_match" for node in catalog["nodes"]))
+        self.assertNotIn("profiles", catalog)
         status, initial = self.request("GET", "/api/initial")
         self.assertEqual((status, initial["document"]), (200, None))
         with urllib.request.urlopen(self.url + "/index.html") as response:
@@ -119,23 +88,33 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(status, 404)
         self.assertEqual(missing["error"]["code"], "NOT_FOUND")
 
+    def test_new_draft_selects_io_without_materializing_defaults(self):
+        inputs = [{"type": "keyword_in", "name": "keyword_match"}]
+        outputs = [{"type": "json_out", "name": "keyword_match"}]
+        status, result = self.request("POST", "/api/init", {"input": inputs, "output": outputs})
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["pipeline"], {"io": {"input": inputs, "output": outputs},
+                                            "models": [], "pipeline": []})
+        self.assertEqual(len(list(self.configs.glob("*.json"))), 1)
+
     def test_validation_and_authoring_preserve_native_json_status_without_saving(self):
         bad = copy.deepcopy(self.base)
         bad["pipeline"][0]["type"] = "absent_node"
-        status, report = self.request("POST", "/api/validate", {"pipeline": bad, "explain": True})
+        status, report = self.request("POST", "/api/validate", {"pipeline": bad})
         self.assertEqual(status, 200)
         self.assertFalse(report["ok"])
         self.assertIn(("UNKNOWN_NODE_TYPE", "/pipeline/0/type"),
                       {(item["code"], item["path"]) for item in report["diagnostics"]})
-        status, valid = self.request("POST", "/api/validate", {"pipeline": self.base, "explain": True})
+        status, valid = self.request("POST", "/api/validate", {"pipeline": self.base})
         self.assertEqual(status, 200)
+        self.assertTrue(valid["ok"])
         status, edited = self.request("POST", "/api/authoring/preview", {
             "pipeline": self.base, "require_valid": True,
             "operation": {"kind": "rename_node", "node": "match_keywords", "new_name": "renamed"}})
         self.assertEqual(status, 200, edited)
         self.assertTrue(edited["ok"])
-        self.assertTrue(edited["validation"]["revision"])
-        self.assertEqual(edited["validation"]["tool_fingerprint"], valid["tool_fingerprint"])
+        self.assertTrue(edited["validation"]["ok"])
         self.assertEqual(edited["pipeline"]["io"]["output"][0]["inputs"]["matches"], "renamed.matches")
         self.assertFalse((self.configs / "pipeline_preview.json").exists())
         status, rejected = self.request("POST", "/api/authoring/preview", {
@@ -163,43 +142,7 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(conflict["error"]["code"], "FILE_EXISTS")
         self.assertEqual(path.read_bytes(), raw)
 
-    def test_preview_checks_revision_and_tool_fingerprint(self):
-        status, validated = self.request("POST", "/api/validate", {
-            "pipeline": self.base, "explain": True})
-        self.assertEqual(status, 200, validated)
-        body = {"pipeline": self.base, "revision": validated["revision"],
-                "tool_fingerprint": validated["tool_fingerprint"],
-                "patch": [{"op": "add", "path": "/comment", "value": "preview"}]}
-        for field, code in (("revision", "REVISION_CONFLICT"), ("tool_fingerprint", "TOOL_OUTDATED")):
-            with self.subTest(field=field):
-                status, rejected = self.request("POST", "/api/fixes/preview", {**body, field: "outdated"})
-                self.assertEqual(status, 409, rejected)
-                self.assertEqual(rejected["error"]["code"], code)
-        status, previewed = self.request("POST", "/api/fixes/preview", body)
-        self.assertEqual(status, 200, previewed)
-        self.assertEqual(previewed["patched"]["comment"], "preview")
-        self.assertEqual(previewed["report"]["revision"], previewed["revision"])
-        status, invalid = self.request("POST", "/api/fixes/preview", {
-            **body, "patch": [{"op": "replace", "path": "", "value": None}]})
-        self.assertEqual(status, 200, invalid)
-        self.assertIsNone(invalid["patched"])
-        self.assertFalse(invalid["report"]["ok"])
-        self.assertEqual(invalid["revision"], invalid["report"]["revision"])
-        for path in ("/pipeline/-1", "/pipeline/99"):
-            status, rejected = self.request("POST", "/api/fixes/preview", {
-                **body, "patch": [{"op": "add", "path": path, "value": {}}]})
-            self.assertEqual(status, 400, rejected)
-            self.assertEqual(rejected["error"]["code"], "PATCH_APPLICATION_FAILED")
-
-    def test_preflight_uses_selected_data_and_cleans_temporary_conf(self):
-        before = {path.name: path.read_bytes() for path in self.configs.iterdir()}
-        status, ready = self.request("POST", "/api/preflight", {
-            "pipeline": self.base, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 200, ready)
-        self.assertEqual(ready["summary"]["status"], "ready")
-        self.assertEqual({path.name: path.read_bytes() for path in self.configs.iterdir()}, before)
-
-    def test_incomplete_document_saves_without_runtime_but_cannot_run(self):
+    def test_incomplete_document_saves_without_tool_and_retains_native_errors(self):
         incomplete = copy.deepcopy(self.base)
         incomplete["pipeline"][0]["inputs"] = {}
         incomplete["unknown"] = {"preserve": ["中文", False]}
@@ -208,10 +151,13 @@ class StudioHttpContractTest(unittest.TestCase):
             status, opened = self.request("GET", "/api/pipeline?filename=" + saved["filename"])
             self.assertEqual(status, 200, opened)
             self.assertEqual(opened["pipeline"], incomplete)
-        status, rejected = self.request("POST", "/api/runs", {
-            "pipeline": incomplete, "profile": "keyword_match_rules"})
-        self.assertEqual(status, 400, rejected)
-        self.assertEqual(rejected["error"]["code"], "VALIDATION_FAILED")
+            status, unavailable = self.request("POST", "/api/validate", {"pipeline": incomplete})
+            self.assertEqual(status, 503, unavailable)
+            self.assertEqual(unavailable["error"]["code"], "TOOL_NOT_BUILT")
+        status, invalid = self.request("POST", "/api/validate", {"pipeline": incomplete})
+        self.assertEqual(status, 200, invalid)
+        self.assertFalse(invalid["ok"])
+        self.assertTrue(invalid["diagnostics"])
         for invalid in (None, [], {}, {"pipeline": [None]}, {"pipeline": [], "models": {}},
                         {"pipeline": [], "io": {"input": [None]}}, {"pipeline": [{"depends_on": "bad"}]}):
             status, rejected = self.request("POST", "/api/pipelines", {
@@ -232,7 +178,7 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(studio.ErrorCode.JSON_PARSE.value, -2002)
         self.assertEqual(payload["error"]["code"], studio.ErrorCode.JSON_PARSE.name)
         status, rejected = self.request("POST", "/api/init", {
-            "profile": "keyword_match_rules", "input": []})
+            "input": "invalid", "output": []})
         self.assertEqual(status, 400)
         self.assertEqual(rejected["error"]["code"], "INVALID_INIT_REQUEST")
         with mock.patch.object(self.service, "initial_pipeline", side_effect=RuntimeError("injected failure")):
@@ -347,7 +293,7 @@ class StudioHttpContractTest(unittest.TestCase):
         raw_conf = conf.read_bytes()
         opened = self.service.open_pipeline(name)
         updated = {**self.base, "comment": "JSON only"}
-        with mock.patch.object(self.service, "resolve_run_conf", side_effect=AssertionError("save must not run preflight")):
+        with mock.patch.object(self.service, "invoke_tool", side_effect=AssertionError("save must not invoke the tool")):
             status, saved = self.request("PUT", "/api/pipeline", {
                 "filename": name, "pipeline": updated, "revision": opened["revision"]})
         self.assertEqual(status, 200, saved)
@@ -355,43 +301,6 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(conf.read_bytes(), raw_conf)
         self.assertNotIn("deployment", saved)
         self.assertFalse((self.root / "output").exists())
-
-    def test_profiles_reuse_catalog_settings_without_validating_the_example(self):
-        example = copy.deepcopy(self.base)
-        example["models"] = [{"type": "llm", "name": "unavailable", "file": "missing.fixture",
-                              "backend": {"type": "unavailable_backend"}}]
-        (self.configs / "example.json").write_text(json.dumps(example))
-        (self.configs / "example.conf").write_text('{"pipe_path":"example.json"}')
-        profile = {**self.profile, "config": "configs/example.conf", "depth": 3,
-                   "control_cmd": 1, "control_file": "data/control.json"}
-        shutil.copy(ROOT / "data/keyword_match_control.json", self.root / "data/control.json")
-        (self.root / "demo/profiles.json").write_text(json.dumps({"profiles": {
-            "z_example": profile, "a_example": {**profile, "depth": 1},
-        }}))
-        status, catalog = self.request("GET", "/api/catalog")
-        self.assertEqual(status, 200, catalog)
-        self.assertEqual([entry["name"] for entry in catalog["profiles"]], ["z_example", "a_example"])
-        self.assertEqual({key: value for key, value in catalog["profiles"][0].items()
-                          if key not in ("name", "io")}, profile)
-        self.assertEqual(self.service.profile_inputs(self.base, "z_example"), profile)
-        self.service.demo_command(profile, self.configs / "pipeline_keyword_match_rules.conf", self.root / "run")
-        exported = json.loads((self.root / "run/demo-profile.json").read_text())["profiles"]["pipeline_keyword_match_rules"]
-        self.assertEqual(exported["control_cmd"], profile["control_cmd"])
-        self.assertEqual(exported["control_file"], str(self.root / profile["control_file"]))
-        self.assertEqual(exported["depth"], profile["depth"])
-        for fields in ({}, {"profile": None}):
-            status, missing = self.request("POST", "/api/runs", {"pipeline": self.base, **fields})
-            self.assertEqual(status, 400, missing)
-            self.assertEqual(missing["error"]["code"], "UNKNOWN_PROFILE")
-        status, ready = self.request("POST", "/api/preflight", {"pipeline": self.base, "profile": "z_example"})
-        self.assertEqual(status, 200, ready)
-        self.assertEqual(ready["summary"]["status"], "ready")
-        self.assertEqual(ready["configuration"]["effective_frame_depth"], 3)
-        changed = copy.deepcopy(self.base)
-        changed["io"]["output"][0]["name"] = "different_contract"
-        with self.assertRaises(studio.StudioError) as mismatch:
-            self.service.profile_inputs(changed, "z_example")
-        self.assertEqual(mismatch.exception.code, "PROFILE_MISMATCH")
 
     def test_managed_paths_reject_escape_and_symlinks_while_import_is_read_only(self):
         outside = self.root / "pipeline_import.json"
@@ -412,6 +321,36 @@ class StudioHttpContractTest(unittest.TestCase):
                 self.assertEqual(caught.exception.code, code)
         self.assertEqual(outside.read_text(), '{"pipeline":[],"comment":"browsable draft"}')
 
+    def test_file_read_boundaries_are_shared_and_bad_files_do_not_hide_valid_ones(self):
+        cases = (("pipeline_bad_utf8.json", b"\xff", "JSON_PARSE"),
+                 ("pipeline_bad_json.json", b"{", "JSON_PARSE"),
+                 ("pipeline_wrong_shape.json", b"{}", "INVALID_PIPELINE_DOCUMENT"),
+                 ("pipeline_large.json", b" " * (studio.MAX_DOCUMENT_BYTES + 1), "DOCUMENT_TOO_LARGE"))
+        for name, raw, code in cases:
+            path = self.configs / name
+            path.write_bytes(raw)
+            with self.subTest(filename=name):
+                for read in (lambda: self.service.open_pipeline(name),
+                             lambda: studio.read_pipeline_file(path)):
+                    with self.assertRaises(studio.StudioError) as caught:
+                        read()
+                    self.assertEqual(caught.exception.code, code)
+        listed = self.service.pipelines()["pipelines"]
+        self.assertEqual([item["filename"] for item in listed], ["pipeline_keyword_match_rules.json"])
+        raw = (self.configs / listed[0]["filename"]).read_bytes()
+        self.assertEqual(listed[0]["revision"], hashlib.sha256(raw).hexdigest())
+
+    def test_terminal_displays_saved_null_and_incomplete_io_drafts(self):
+        for io in (None, {"input": None, "output": [{}]}):
+            with self.subTest(io=io):
+                document = {"pipeline": [{}], "models": None, "io": io}
+                saved = self.service.save_pipeline("pipeline_draft.json", document, None, save_as=True)
+                path = self.configs / saved["filename"]
+                with mock.patch("builtins.print") as output:
+                    studio.main([str(path)])
+                self.assertTrue(any("io:" in str(call) for call in output.call_args_list))
+                path.unlink()
+
     def test_oversized_http_body_is_rejected_before_reading_the_document(self):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
         self.addCleanup(connection.close)
@@ -422,99 +361,7 @@ class StudioHttpContractTest(unittest.TestCase):
         self.assertEqual(response.status, 413)
         self.assertEqual(json.loads(response.read())["error"]["code"], "BODY_TOO_LARGE")
 
-    def test_background_failure_uses_shared_codes_and_keeps_reason(self):
-        for failure, expected in (
-            (RuntimeError("worker failure"), "INTERNAL_EXCEPTION"),
-            (studio.StudioError(studio.ErrorCode.RUN_TIMEOUT, "worker timeout"), "RUN_TIMEOUT"),
-        ):
-            with self.subTest(code=expected):
-                self.service.jobs["failed-job"] = {"cancel_requested": False}
-                with mock.patch.object(self.service, "resolve_run_conf", side_effect=failure):
-                    self.service._run_job("failed-job", self.base, self.profile)
-                job = self.service.run_status("failed-job")["job"]
-                self.assertEqual(job["status"], "failed")
-                self.assertEqual(job["error"], {"code": expected, "message": str(failure)})
-
-    def test_cancel_and_timeout_reap_stubborn_process_and_preserve_log_tail(self):
-        for mode in ("cancel", "startup", "timeout"):
-            with self.subTest(mode=mode):
-                ready = self.root / f"ready-{mode}"
-                demo = self.root / f"stubborn-{mode}"
-                demo.write_text(
-                    "#!/usr/bin/env python3\n"
-                    "import os, signal, time\n"
-                    "from pathlib import Path\n"
-                    "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
-                    "print('x' * 4096, flush=True)\n"
-                    "print('ready-for-stop', flush=True)\n"
-                    f"Path({str(ready)!r}).write_text(str(os.getpid()))\n"
-                    "time.sleep(30)\n")
-                demo.chmod(0o700)
-                spawned, release, cancelling = threading.Event(), threading.Event(), threading.Event()
-                processes = []
-                popen, cancel = studio.subprocess.Popen, self.service.cancel_run
-
-                def launch(args, *values, **options):
-                    process = popen(args, *values, **options)
-                    if args[0] == str(demo):
-                        processes.append(process)
-                        spawned.set()
-                        if mode == "startup" and not release.wait(5):
-                            raise RuntimeError("startup test did not release Popen")
-                    return process
-
-                def request_cancel(job_id):
-                    cancelling.set()
-                    return cancel(job_id)
-
-                with mock.patch.object(studio, "DEMO_BINARY", demo), \
-                        mock.patch.object(studio, "SMOKE_RUN_TIMEOUT_SECONDS", .5 if mode == "timeout" else 10), \
-                        mock.patch.object(studio, "PROCESS_STOP_TIMEOUT_SECONDS", .1), \
-                        mock.patch.object(studio, "MAX_LOG_BYTES", 128), \
-                        mock.patch.object(studio.subprocess, "Popen", side_effect=launch), \
-                        mock.patch.object(self.service, "cancel_run", side_effect=request_cancel):
-                    try:
-                        status, run = self.request("POST", "/api/runs", {
-                            "pipeline": self.base, "profile": "keyword_match_rules"})
-                        self.assertEqual(status, 200, run)
-                        self.assertTrue(spawned.wait(5))
-                        deadline = time.monotonic() + 5
-                        while not ready.exists() and time.monotonic() < deadline:
-                            time.sleep(.01)
-                        self.assertTrue(ready.exists(), "child did not install its signal handler")
-                        if mode == "startup":
-                            with ThreadPoolExecutor(1) as pool:
-                                pending = pool.submit(self.request, "DELETE", f"/api/runs/{run['job_id']}", {})
-                                try:
-                                    self.assertTrue(cancelling.wait(5))
-                                finally:
-                                    release.set()
-                                self.assertEqual(pending.result(timeout=5)[0], 200)
-                        elif mode == "cancel":
-                            self.assertEqual(self.request("DELETE", f"/api/runs/{run['job_id']}", {})[0], 200)
-                        deadline = time.monotonic() + 8
-                        while time.monotonic() < deadline:
-                            job = self.service.run_status(run["job_id"])["job"]
-                            if job["status"] in ("cancelled", "failed", "completed"):
-                                break
-                            time.sleep(.01)
-                        self.assertEqual(job["status"], "failed" if mode == "timeout" else "cancelled", job)
-                        self.assertEqual(processes[0].poll(), -signal.SIGKILL)
-                        with self.assertRaises(ProcessLookupError):
-                            os.kill(processes[0].pid, 0)
-                        self.assertIn("ready-for-stop", job["logs"])
-                        self.assertLessEqual(len(job["logs"].encode()), 128)
-                        if mode == "timeout":
-                            self.assertEqual(job["error"]["code"], "RUN_TIMEOUT")
-                        self.assertIsNone(self.service.jobs[run["job_id"]]["process"])
-                    finally:
-                        release.set()
-                        for process in processes:
-                            if process.poll() is None:
-                                os.killpg(process.pid, signal.SIGKILL)
-                            process.wait(timeout=5)
-
-    def test_javascript_library_and_fix_consumers(self):
+    def test_javascript_library_consumers(self):
         scripts = sorted(path for path in (ROOT / "tests/tooling").rglob("studio_*_test.mjs")
                          if path != ROOT / "tests/tooling/studio_browser_test.mjs")
         self.assertTrue(scripts, "Studio JavaScript test discovery must not be empty")

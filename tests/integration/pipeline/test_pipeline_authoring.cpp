@@ -146,9 +146,8 @@ TEST(PipelineEditingTest,
   EXPECT_TRUE(serialized.contains("validation"));
 }
 
-TEST(
-    PipelineEditingTest,
-    OrderingIsDeduplicatedRemovedAndCycleFailureLeavesOperationStateUntouched) {
+TEST(PipelineEditingTest,
+     OrderingIsDeduplicatedRemovedAndCycleFailureDoesNotPublishCandidate) {
   const auto result = Edit(Document(),
                            Json::array({{{"kind", "add_dependency"},
                                          {"node", "render_more"},
@@ -160,17 +159,86 @@ TEST(
   ASSERT_TRUE(result.ok) << result.ToJson();
   EXPECT_EQ((*result.pipeline)["pipeline"][2]["depends_on"],
             Json::array({"render"}));
-  auto candidate = Document();
-  const auto original = candidate;
-  std::vector<AuthoringChange> changes;
-  std::string error;
-  EXPECT_FALSE(PipelineAuthoring::ApplyOperation(
-      &candidate,
-      {{"kind", "add_dependency"}, {"node", "render"}, {"depends_on", "match"}},
-      &changes, &error));
-  EXPECT_EQ(candidate, original);
-  EXPECT_TRUE(changes.empty());
-  EXPECT_NE(error.find("DAG_CYCLE"), std::string::npos);
+  const auto document = Document();
+  const auto cycle = Edit(document, Json::array({{{"kind", "add_dependency"},
+                                                  {"node", "render"},
+                                                  {"depends_on", "match"}}}));
+  EXPECT_FALSE(cycle.ok);
+  EXPECT_FALSE(cycle.pipeline.has_value());
+  EXPECT_EQ(document, Document());
+  EXPECT_TRUE(cycle.changes.empty());
+  ASSERT_FALSE(cycle.diagnostics.empty());
+  EXPECT_NE(cycle.diagnostics.front().find("DAG_CYCLE"), std::string::npos);
+}
+
+TEST(PipelineEditingTest,
+     DisconnectCanRemoveDanglingBindingsWithoutCatalogPorts) {
+  auto document = Document();
+  document["pipeline"][1]["type"] = "missing_type";
+  document["pipeline"][1]["inputs"] = {{"old_port", "gone.text"}};
+  document["io"]["output"][0]["inputs"] = {{"old_port", "gone.matches"}};
+  const auto disconnect =
+      Edge("disconnect", "gone", "text", "match", "old_port");
+  auto mismatch = disconnect;
+  mismatch["source"]["port"] = "changed";
+  EXPECT_FALSE(Edit(document, Json::array({mismatch})).ok);
+  const auto result = Edit(
+      document, Json::array({disconnect, Edge("disconnect", "gone", "matches",
+                                              "output", "old_port")}));
+  ASSERT_TRUE(result.ok) << result.ToJson();
+  EXPECT_TRUE((*result.pipeline)["pipeline"][1]["inputs"].empty());
+  EXPECT_TRUE((*result.pipeline)["io"]["output"][0]["inputs"].empty());
+
+  document["io"]["output"].push_back(document["io"]["output"][0]);
+  const auto ambiguous =
+      Edit(document, Json::array({Edge("disconnect", "gone", "matches",
+                                       "output", "old_port")}));
+  ASSERT_FALSE(ambiguous.ok);
+  EXPECT_NE(ambiguous.diagnostics.front().find("AMBIGUOUS_OUTPUT_PORT"),
+            std::string::npos);
+}
+
+TEST(PipelineEditingTest,
+     InvalidIoDoesNotBypassCycleRejectionOrBlockAcyclicEdits) {
+  auto document = Document();
+  document["io"]["output"][0]["params"]["result_json_max_bytes"] = 0;
+  for (const auto& operation : Json::array(
+           {{{"kind", "add_dependency"},
+             {"node", "render"},
+             {"depends_on", "match"}},
+            Edge("connect", "render_more", "text", "render", "primary")})) {
+    SCOPED_TRACE(operation.dump());
+    const auto original = document;
+    const auto result = Edit(document, Json::array({operation}));
+    EXPECT_FALSE(result.ok);
+    EXPECT_FALSE(result.pipeline.has_value());
+    EXPECT_EQ(document, original);
+    EXPECT_TRUE(result.changes.empty());
+    ASSERT_FALSE(result.diagnostics.empty());
+    EXPECT_NE(result.diagnostics.front().find("DAG_CYCLE"), std::string::npos);
+  }
+  const auto connect =
+      Edge("connect", "input", "sentence_text", "match", "text");
+  const auto draft = Edit(document, Json::array({connect}));
+  ASSERT_TRUE(draft.ok) << draft.ToJson();
+  EXPECT_FALSE(draft.validation["ok"].get<bool>());
+  EXPECT_EQ(draft.validation["diagnostics"][0]["path"],
+            "/io/output/0/params/result_json_max_bytes");
+
+  // 增边之后的修改必须得到自身的最终报告，不能复用前一个文档的结果。
+  const auto strict = Edit(
+      Document(),
+      Json::array(
+          {connect,
+           {{"kind", "apply_patch"},
+            {"patch",
+             Json::array({{{"op", "add"},
+                           {"path", "/io/output/0/params"},
+                           {"value", {{"result_json_max_bytes", 0}}}}})}}}),
+      true);
+  EXPECT_FALSE(strict.ok);
+  EXPECT_FALSE(strict.pipeline.has_value());
+  EXPECT_FALSE(strict.validation["ok"].get<bool>());
 }
 
 TEST(PipelineEditingTest,

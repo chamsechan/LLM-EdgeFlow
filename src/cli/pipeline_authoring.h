@@ -32,12 +32,6 @@ class PipelineAuthoring {
  public:
   // 应用单个编辑请求，包含 {pipeline, operation/operations, require_valid}。
   static AuthoringResult ApplyRequest(const nlohmann::json& request);
-
-  // 将一个编辑操作应用到内存中的 Pipeline 文档。
-  static bool ApplyOperation(nlohmann::json* pipeline,
-                             const nlohmann::json& operation,
-                             std::vector<AuthoringChange>* changes,
-                             std::string* error);
 };
 
 }  // namespace llm_edgeflow

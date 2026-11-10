@@ -1,24 +1,19 @@
 import { api, write } from "./api.js";
 import { GraphView } from "./graph.js";
 import { createHistory, createDrafts, appendDiagnostic, appendConfigField, readConfigFields, readFormBuffer, restoreFormBuffer } from "./editor.js";
-import { pipelineIo, ioLabel, compatibleModels, modelBoundNodeIds, graphDocument, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel, assetModel } from "./workbench.js";
-
-import { captureRun, runIsCurrent, runSummary, renderSamples } from "./workflow.js";
+import { compatibleModels, modelBoundNodeIds, graphDocument, compatibleBackends, modelAvailability, assertBrowsablePipeline, readPipelineFile, upsertModel, removeModel } from "./workbench.js";
 
 const $ = selector => document.querySelector(selector);
 const state = {
   pipeline: null,
   authoringBusy: false,
-  preflight: null,
   filename: "",
   sourceName: "",
   revision: "",
   dirty: false,
-  catalog: { nodes: [], models: [], backends: [], input_converters: [], output_converters: [], profiles: [] },
+  catalog: { nodes: [], models: [], backends: [], input_converters: [], output_converters: [] },
   catalogReady: false,
-  assets: [],
   selected: "",
-  run: null,
   errorNodeIds: new Set(),
   pipelineVersion: 0,
   documentVersion: 0,
@@ -30,20 +25,18 @@ const state = {
 const history = createHistory();
 const drafts = createDrafts();
 let documentRequest = 0;
-let pendingFixReview = null;
-let preflightRequest = 0;
 let draftCommit = null;
 
 function snapshot() { return { pipeline: state.pipeline, selected: state.selected }; }
 
 function refreshDocumentView() {
   if (!drafts.has("json")) $("#rawJson").value = JSON.stringify(state.pipeline, null, 2);
-  renderPreflightFreshness(); updateEditorStatus();
+  updateEditorStatus();
 }
 
 function updateEditorStatus() {
   const pending = drafts.pending;
-  // 保存、检查和试运行可以等待正在提交的表单；其他编排操作仍需完成后再开始。
+  // 保存和检查可以等待正在提交的表单；其他编排操作仍需完成后再开始。
   const actionBusy = state.loading || (state.authoringBusy && !draftCommit);
   const badge = $("#dirtyBadge");
   badge.textContent = (state.loading || state.authoringBusy) ? "加载中…" : !state.pipeline ? "未打开" : (pending || state.dirty) ? "未保存" : state.sourceName ? "已导入" : "已保存";
@@ -65,15 +58,12 @@ function updateEditorStatus() {
   }
   $("#quickValidateButton").disabled = actionBusy || !state.pipeline || !state.catalogReady;
   $("#quickValidateButton").textContent = "检查";
-  $("#openRunButton").disabled = actionBusy || !state.pipeline;
   $("#validateButton").disabled = actionBusy || !state.pipeline || !state.catalogReady;
   $("#validateButton").textContent = "检查方案";
-  $("#preflightButton").disabled = actionBusy || !state.pipeline;
   $("#saveScope").textContent = state.pipeline ? state.filename
     ? `文件：${state.filename}`
     : "尚未保存为文件。" : "";
   $("#saveButton").title = $("#saveScope").textContent;
-  renderRunContext();
   $("#rawJson").readOnly = (state.loading || state.authoringBusy) || drafts.pendingExcept("json").length > 0;
   for (const [kind, form] of [["node", "#nodeForm"], ["model", "#modelForm"], ["io", "#ioForm"]]) {
     for (const control of $(form).querySelectorAll("input, select, textarea, button")) {
@@ -112,7 +102,6 @@ function operationFeedback(message, error = false) {
 
 function showFailure(error) {
   let report = error.payload;
-  if (report?.error?.code === "VALIDATION_FAILED") report = report.error.message;
   if (Array.isArray(report?.diagnostics) && report.diagnostics.length) {
     showValidation(report); switchTab("validation");
     operationFeedback("方案校验未通过，请按诊断修复后重试。", true);
@@ -122,7 +111,6 @@ function showFailure(error) {
 function resetDocumentFeedback() {
   operationFeedback("");
   setInspectorOpen(false);
-  renderRun();
 }
 
 function toast(message, error = false) {
@@ -152,7 +140,6 @@ function setDirty(value) {
 }
 
 function clearValidation(message = "") {
-  state.validationReport = null;
   state.errorNodeIds = new Set();
   $("#validationOutput").textContent = message;
   $("#validationBadge").textContent = state.pipeline ? "尚未检查" : "";
@@ -161,11 +148,7 @@ function clearValidation(message = "") {
 function markPipelineChanged(record = true) {
   state.pipelineVersion += 1;
   clearValidation("方案已修改，请重新校验");
-  $("#selectionReport").textContent = "方案已修改，资产与效果验收需要重新检查。";
   state.selectedEdge = null;
-  pendingFixReview = null;
-  $("#fixReviewPanel").hidden = true;
-  renderPreflightFreshness();
   if (record) history.record(snapshot());
   setDirty(JSON.stringify(state.pipeline) !== state.savedPipeline);
 }
@@ -174,9 +157,9 @@ function positionsKey() { return `edgeflow.positions.${state.filename || state.s
 function restorePositions() {
   try {
     const saved = JSON.parse(localStorage.getItem(positionsKey()) || "{}");
-    graph.positions = Object.fromEntries(Object.entries(saved).filter(([, point]) => Number.isFinite(point?.x) && Number.isFinite(point?.y)));
+    graph.positions = Object.assign(Object.create(null), Object.fromEntries(Object.entries(saved).filter(([, point]) => Number.isFinite(point?.x) && Number.isFinite(point?.y))));
   }
-  catch { graph.positions = {}; }
+  catch { graph.positions = Object.create(null); }
 }
 
 function savePositions(positions) {
@@ -228,10 +211,7 @@ function renderAll() {
   $("#deleteEdgeButton").disabled = !state.selectedEdge;
   renderInspector(nodes.find(node => node.name === state.selected));
   renderIoForm();
-  renderBizContract();
-  filterProfiles();
   refreshModelList();
-  renderPreflightFreshness();
   updateEditorStatus();
 }
 
@@ -264,7 +244,7 @@ function renderIoList(container, entries, direction, creating) {
     try {
       if (!creating) readIoParameters();
       change();
-      if (creating) { renderCreateIo(); filterProfiles(); }
+      if (creating) { renderCreateIo(); updateCreateForm(); }
       else { drafts.set("io", {}); renderIoForm(); rememberIo(); applyIo(); }
     } catch (error) { operationFeedback(error.message, true); }
   };
@@ -334,37 +314,6 @@ function applyIo(redraw = true) {
   } catch (error) { operationFeedback(error.message, true); return false; }
 }
 
-function renderBizContract() {
-  $("#bizContract").hidden = !state.pipeline;
-  const container = $("#bizContractFields");
-  container.replaceChildren();
-  if (!state.pipeline) return;
-  const fields = (parent, values) => {
-    const list = document.createElement("dl");
-    list.className = "contract-fields";
-    for (const [name, value] of values) {
-      const term = document.createElement("dt");
-      term.textContent = name;
-      const detail = document.createElement("dd");
-      detail.textContent = value ?? "未提供";
-      list.append(term, detail);
-    }
-    parent.append(list);
-  };
-  fields(container, [["输入 → 输出", ioLabel(pipelineIo(state.pipeline))]]);
-  if (!state.catalogReady) return;
-  for (const [direction, label] of [["input", "输入"], ["output", "输出"]]) {
-    for (const entry of state.pipeline.io?.[direction] || []) {
-      const converter = state.catalog[`${direction}_converters`]?.find(item => item.type === entry.type && item.name === entry.name);
-      fields(container, [
-        [`${label} Converter`, `${entry.type}/${entry.name}`],
-        ["宿主类型", converter?.slot?.type_id],
-        ["类型注册后缀", converter?.type],
-      ]);
-    }
-  }
-}
-
 function renderInspector(node) {
   $("#emptyInspector").hidden = Boolean(node);
   $("#nodeForm").hidden = !node;
@@ -416,6 +365,7 @@ async function applyAuthoring(operation, options = {}) {
   if (!options.except && drafts.pending) return ensureAppliedOrAction(() => applyAuthoring(operation, options));
   if (!state.pipeline || !requireApplied(options.except || "")) return false;
   const source = structuredClone(state.pipeline);
+  options.configure?.(source);
   const version = state.pipelineVersion, documentVersion = state.documentVersion;
   const current = () => !state.loading && version === state.pipelineVersion &&
     documentVersion === state.documentVersion;
@@ -429,21 +379,14 @@ async function applyAuthoring(operation, options = {}) {
       operationFeedback(result.diagnostics.map(item => item.message).join("\n") || "编排操作失败", true);
       return false;
     }
-    let validation = result.validation;
-    if (options.configure) {
-      options.configure(result.pipeline);
-      validation = await write("/validate", "POST", { pipeline: result.pipeline, explain: true }, true);
-      if (!current()) return false;
-      if (validation.tool_fingerprint !== result.validation.tool_fingerprint) throw new Error("工具已更新，请重试操作");
-    }
+    const validation = result.validation;
     if (options.except) drafts.clear(options.except);
     state.pipeline = result.pipeline;
     if (options.selected !== undefined) state.selected = options.selected;
     else if (operation.kind === "add_node") state.selected = result.changes?.find(c => c.action === "add_node")?.node_name || "";
     options.onCommit?.();
     markPipelineChanged();
-    state.validationReport = validation;
-    showValidation(state.validationReport);
+    showValidation(validation);
     operationFeedback((result.changes || []).map(c => c.description).join("\n") || "编排操作完成");
     return true;
   } catch (error) {
@@ -475,53 +418,32 @@ function renderBindings(node) {
 }
 
 async function refreshLists() {
-  const [catalog, pipelines, assets] = await Promise.all([api("/catalog"), api("/pipelines"), api("/assets")]);
-  state.assets = assets.selections;
-  const variants = $("#buildVariant"); variants.replaceChildren(new Option("按当前 Catalog 检查", ""));
-  for (const variant of assets.variants) variants.add(new Option(variant.name, variant.name));
-  state.catalog = catalog;
-  state.catalogReady = true;
-  const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
-  for (const item of pipelines.pipelines) schemes.add(new Option(item.filename, item.filename));
-  renderOperators();
-  renderCreateIo(); filterProfiles();
-}
-
-function filterProfiles() {
-  const sameIo = (left, right) => ["input", "output"].every(direction => {
-    const pairs = io => (io?.[direction] || []).map(entry => `${entry.type}/${entry.name}`);
-    return JSON.stringify(pairs(left)) === JSON.stringify(pairs(right));
-  });
-  for (const selector of [$("#cloneProfile"), $("#runProfile")]) {
-    const cloning = selector.id === "cloneProfile";
-    const matching = cloning ? state.catalog.profiles : state.catalog.profiles.filter(profile => sameIo(profile.io, pipelineIo(state.pipeline)));
-    const previous = selector.value; selector.replaceChildren();
-    if (cloning) selector.add(new Option("请选择示例方案", ""));
-    else if (!matching.length) selector.add(new Option("没有匹配的示例数据", ""));
-    for (const profile of matching) selector.add(new Option(profile.name, profile.name));
-    if ([...selector.options].some(item => item.value === previous)) selector.value = previous;
+  const [catalog, pipelines] = await Promise.allSettled([api("/catalog"), api("/pipelines")]);
+  if (pipelines.status === "fulfilled") {
+    const schemes = $("#pipelineSelect"); schemes.replaceChildren(new Option("选择方案", ""));
+    for (const item of pipelines.value.pipelines) schemes.add(new Option(item.filename, item.filename));
   }
-  updateCreateForm();
+  if (catalog.status === "rejected") throw catalog.reason;
+  state.catalog = catalog.value;
+  state.catalogReady = true;
+  renderOperators(); renderCreateIo(); updateCreateForm();
+  if (pipelines.status === "rejected") throw pipelines.reason;
 }
 
 function updateCreateForm() {
-  const template = $("#createMode").value === "template";
-  const busy = state.loading || state.authoringBusy;
-  $("#templateChoice").hidden = !template;
-  $("#createIo").hidden = template;
-  $("#createMode").disabled = busy;
-  $("#cloneProfile").disabled = busy || !state.catalogReady;
-  $("#newButton").disabled = busy || !state.catalogReady || (template && !$("#cloneProfile").value);
-  $("#createHint").textContent = !state.catalogReady ? "示例与节点列表尚未就绪。请确认工具已构建，然后刷新页面；也可直接导入文件查看。"
-    : template ? "复制示例的节点、连接和参数，再按需要修改。" : "先选择输入与输出，创建后从节点库添加节点并连接端口。";
-  for (const element of $("#createIo").querySelectorAll("select, button")) element.disabled = template || busy || !state.catalogReady;
+  const disabled = state.loading || state.authoringBusy || !state.catalogReady;
+  $("#newButton").disabled = disabled || !createIo.input.length || !createIo.output.length;
+  $("#createHint").textContent = !state.catalogReady ? "节点列表尚未就绪，请构建工具并刷新页面；仍可打开和保存 JSON。"
+    : "选择输入与输出，创建后添加节点并连接端口。也可打开已有方案后另存为。";
+  for (const element of $("#createIo").querySelectorAll("select, button")) element.disabled = disabled;
 }
+
 async function openPipeline(filename) {
   if (!filename) return;
   return openDocument(() => api(`/pipeline?filename=${encodeURIComponent(filename)}`));
 }
 
-async function openDocument(load, { creating = false, profile = "" } = {}) {
+async function openDocument(load, { creating = false } = {}) {
   if ((state.dirty || drafts.pending) && !confirm(`当前修改尚未保存，确认丢弃并${creating ? "新建" : "打开其他方案"}？`)) return;
   const request = ++documentRequest;
   state.loading = true; graph.editable = false; updateEditorStatus();
@@ -540,11 +462,9 @@ async function openDocument(load, { creating = false, profile = "" } = {}) {
     state.pipelineVersion += 1;
     restorePositions(); clearValidation(); setDirty(creating);
     if (creating) {
-      filterProfiles();
-      if (profile) $("#runProfile").value = profile;
-      $(".create-panel").open = false;
+          $(".create-panel").open = false;
       switchTab("properties");
-      operationFeedback(profile ? "示例方案已创建。点击节点调整参数，再检查或运行；保存后才会写入文件。" : "空白方案已创建。从节点库添加节点，再连接输入和输出。完成后检查并保存。");
+      operationFeedback("空白方案已创建。从节点库添加节点，再连接输入和输出。完成后检查并保存。");
     }
   } finally {
     if (request === documentRequest) { state.loading = false; renderAll(); }
@@ -552,9 +472,8 @@ async function openDocument(load, { creating = false, profile = "" } = {}) {
 }
 
 async function createPipeline() {
-  const profile = $("#createMode").value === "template" ? $("#cloneProfile").value : "";
-  if (!state.catalogReady || state.loading || state.authoringBusy || ($("#createMode").value === "template" && !profile)) return;
-  return openDocument(() => write("/init", "POST", profile ? {profile} : structuredClone(createIo)), { creating: true, profile });
+  if (!state.catalogReady || state.loading || state.authoringBusy) return;
+  return openDocument(() => write("/init", "POST", structuredClone(createIo)), { creating: true });
 }
 
 // 受控方案文件名为 pipeline_[a-z0-9_]+.json；这里只做大小写、空白和前后缀的规范化。
@@ -606,7 +525,7 @@ function showValidation(report) {
   state.errorNodeIds = new Set();
   if (report.ok) {
     const block = document.createElement("div"); block.className = "diagnostic ok";
-    block.textContent = "连接与配置检查通过。试运行还需要相应的模型资源。";
+    block.textContent = "连接与配置检查通过。";
     output.append(block);
   }
   for (const item of report.diagnostics || []) {
@@ -614,101 +533,10 @@ function showValidation(report) {
     appendDiagnostic(
       output,
       item,
-      id => { selectNode(id); switchTab("properties"); graph.focusNode(id); },
-      fix => handleApplyFix(fix)
+      id => { selectNode(id); switchTab("properties"); graph.focusNode(id); }
     );
   }
   renderAll();
-}
-
-async function handleApplyFix(fix) {
-  if (!state.pipeline || !state.validationReport || !requireApplied()) return;
-  const pipelineVersion = state.pipelineVersion;
-  const documentVersion = state.documentVersion;
-  const source = structuredClone(state.pipeline);
-  const report = state.validationReport;
-  const isCurrent = () => pipelineVersion === state.pipelineVersion &&
-    documentVersion === state.documentVersion && !state.loading && !drafts.pending &&
-    report === state.validationReport;
-  try {
-    operationFeedback(`正在预览修复：${fix.title}…`);
-    const res = await write("/fixes/preview", "POST", {
-      pipeline: source,
-      patch: fix.patch,
-      revision: state.validationReport.revision,
-      tool_fingerprint: state.validationReport.tool_fingerprint,
-    }, true);
-    if (!isCurrent()) {
-      operationFeedback("草稿已变更，请重新校验后选择修复。");
-      return;
-    }
-    if (!res.ok) {
-      operationFeedback(`修复预览失败：${res.error || "未知错误"}`);
-      return;
-    }
-    const changes = [];
-    const describe = (before, after, path = "") => {
-      if (JSON.stringify(before) === JSON.stringify(after)) return;
-      if (before && after && typeof before === "object" && typeof after === "object" &&
-          !Array.isArray(before) && !Array.isArray(after)) {
-        for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-          describe(before[key], after[key], `${path}/${key.replaceAll("~", "~0").replaceAll("/", "~1")}`);
-        }
-      } else {
-        changes.push(`${path || "/"}\n  修改前：${before === undefined ? "（不存在）" : JSON.stringify(before)}\n  修改后：${after === undefined ? "（删除）" : JSON.stringify(after)}`);
-      }
-    };
-    describe(source, res.patched);
-    const remaining = (res.report?.diagnostics || []).map(item => `${item.code} ${item.path}: ${item.message}`);
-    const reviewPanel = $("#fixReviewPanel");
-    reviewPanel.replaceChildren(); reviewPanel.hidden = false;
-    const title = document.createElement("div"); title.className = "fix-review-title";
-    title.textContent = `修复审阅：${fix.title}`;
-    const effect = document.createElement("p"); effect.textContent = fix.effect;
-    const status = document.createElement("p");
-    status.textContent = res.report?.ok ? "候选方案校验通过；尚未运行" : `候选仍有 ${remaining.length} 项诊断，请审阅影响`;
-    const details = document.createElement("details");
-    const summary = document.createElement("summary"); summary.textContent = `变更与诊断详情（${changes.length} 处）`;
-    const pre = document.createElement("pre"); pre.className = "code"; pre.textContent = [...changes, ...remaining].join("\n\n");
-    details.append(summary, pre);
-    const apply = document.createElement("button"); apply.id = "applyReviewedFix"; apply.textContent = "应用此修复";
-    apply.addEventListener("click", handleApplyReviewedFix);
-    const cancel = document.createElement("button"); cancel.id = "cancelReviewedFix"; cancel.textContent = "取消";
-    cancel.addEventListener("click", () => { pendingFixReview = null; reviewPanel.hidden = true; });
-    reviewPanel.append(title, effect, status, details, apply, cancel);
-    pendingFixReview = { fix, source, report, res, isCurrent };
-    switchTab("validation");
-
-  } catch (error) {
-    operationFeedback(`修复应用失败: ${error.message}`);
-  }
-}
-
-async function handleApplyReviewedFix() {
-  const review = pendingFixReview;
-  if (!review || !review.isCurrent() || !requireApplied()) {
-    pendingFixReview = null;
-    $("#fixReviewPanel").hidden = true;
-    operationFeedback("修复候选已过期，请重新校验和预览。", true);
-    return false;
-  }
-  const button = $("#applyReviewedFix"); if (button) button.disabled = true;
-  try {
-    const checked = await write("/fixes/preview", "POST", {
-      pipeline: review.source, patch: review.fix.patch,
-      revision: review.report.revision, tool_fingerprint: review.report.tool_fingerprint,
-    }, true);
-    if (pendingFixReview !== review || !review.isCurrent()) return false;
-    if (!checked.ok || JSON.stringify(checked.patched) !== JSON.stringify(review.res.patched)) throw new Error("修复候选已改变，请重新预览");
-    state.pipeline = checked.patched;
-    markPipelineChanged();
-    state.validationReport = checked.report;
-    showValidation(checked.report);
-    switchTab("validation");
-    operationFeedback(`已应用修复：${review.fix.title}（可撤销）`);
-    return true;
-  } catch (error) { operationFeedback(error.message, true); return false; }
-  finally { if (button) button.disabled = false; }
 }
 
 async function validate() {
@@ -722,87 +550,13 @@ async function validate() {
   const pipelineVersion = state.pipelineVersion;
   clearValidation("校验中…"); renderAll();
   try {
-    const report = await write("/validate", "POST", { pipeline: state.pipeline, explain: true }, true);
+    const report = await write("/validate", "POST", { pipeline: state.pipeline }, true);
     if (pipelineVersion !== state.pipelineVersion) return false;
-    state.validationReport = report;
     showValidation(report);
     return report.ok;
   } catch (error) {
     if (pipelineVersion === state.pipelineVersion) output.textContent = error.message;
     return false;
-  }
-}
-
-function runBusy() {
-  return state.run && ["starting", "queued", "running"].includes(state.run.job.status);
-}
-
-function renderRunContext() {
-  renderPreflightFreshness();
-  const run = state.run;
-  const profileName = $("#runProfile").value;
-  const profile = state.catalog.profiles?.find(item => item.name === profileName);
-  $("#runButton").disabled = state.loading || (state.authoringBusy && !draftCommit) || !state.pipeline || Boolean(runBusy()) || !profileName;
-  $("#runButton").textContent = runBusy() ? "正在运行…" : "试运行";
-  $("#runProfileHint").textContent = !state.pipeline ? "打开或新建方案后，选择示例数据进行试运行。"
-    : !state.catalogReady ? "示例数据列表尚未就绪，请确认工具可用后重新打开方案。"
-    : !profileName ? "没有与当前输入输出匹配的测试样例，仍可编辑和保存。请由开发者补充对应的测试样例。"
-    : `数据集：${profile?.dataset || profileName}。运行使用当前方案，修改无需先保存。`;
-  $("#cancelButton").disabled = !runBusy() || !run?.id;
-  const currentDocument = run?.documentVersion === state.documentVersion;
-  $("#runContext").textContent = !run ? "尚未运行" : !currentDocument
-    ? `其他方案：${run.filename} · ${runBusy() ? "运行中，可取消后运行当前方案" : "已结束；当前方案尚未运行"}`
-    : `${run.filename} · ${new Date(run.startedAt).toLocaleString("zh-CN", { hour12: false })}\n示例数据：${run.profile}`;
-  const stale = currentDocument && !runIsCurrent(run, {
-    documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
-    profile: $("#runProfile").value,
-  });
-  $("#runFreshness").hidden = !stale;
-  $("#runFreshness").textContent = "方案或运行设置已修改。以下结果属于提交时的版本，请重新运行验证当前修改。";
-}
-
-function renderRun() {
-  renderRunContext();
-  const run = state.run;
-  const job = run?.documentVersion === state.documentVersion ? run.job : null;
-  $("#runSummary").textContent = job ? runSummary(job) + (run.pollError ? `\n获取状态失败，正在重试：${run.pollError}` : "") : "";
-  $("#runLog").textContent = job ? `${job.status}\n${job.logs || ""}${job.error ? `\n${job.error.message}` : ""}` : "尚未运行";
-  $("#runResult").textContent = job?.result ? JSON.stringify(job.result, null, 2) : "";
-  $("#resolvedConfig").textContent = job?.configuration ? JSON.stringify(job.configuration, null, 2) : "运行后显示模型路径与生效参数";
-  renderSamples($("#runSamples"), job?.result);
-}
-
-async function runDraft() {
-  if (!state.pipeline || !$("#runProfile").value || runBusy() || !requireApplied()) return;
-  switchTab("run"); operationFeedback("");
-  const run = captureRun({ documentVersion: state.documentVersion, pipeline: state.pipeline,
-    filename: state.filename || state.sourceName || "未命名方案", profile: $("#runProfile").value });
-  state.run = run; renderRun();
-  try {
-    const result = await write("/runs", "POST", { pipeline: JSON.parse(run.pipeline), profile: run.profile });
-    if (state.run !== run) return;
-    run.id = result.job_id; run.job = { status: result.status || "queued" }; renderRun(); pollRun(run);
-  } catch (error) {
-    if (state.run !== run) return;
-    run.job = { status: "failed", error: { message: error.payload?.error?.code === "VALIDATION_FAILED" ? "方案校验未通过，详情见校验页。" : error.message } }; renderRun();
-    if (run.documentVersion === state.documentVersion) showFailure(error);
-  }
-}
-
-async function pollRun(run) {
-  if (state.run !== run || !run.id) return;
-  try {
-    const { job } = await api(`/runs/${run.id}`);
-    if (state.run !== run) return;
-    run.job = job; run.pollError = ""; renderRun();
-    if (["completed", "failed", "cancelled"].includes(job.status)) return;
-    setTimeout(() => pollRun(run), 700);
-  } catch (error) {
-    if (state.run !== run) return;
-    // 状态请求失败并不代表进程已停止。保留取消和重试，
-    // 直到服务器返回终态。
-    run.pollError = error.message; renderRun();
-    setTimeout(() => pollRun(run), 2000);
   }
 }
 
@@ -816,74 +570,6 @@ async function ensureAppliedOrAction(action) {
     if (!ok) return false;
   }
   return await action();
-}
-
-function runSettingsSnapshot() {
-  return JSON.stringify({ documentVersion: state.documentVersion, pipeline: state.pipeline, pending: drafts.pending,
-    profile: $("#runProfile").value });
-}
-
-function renderPreflightFreshness() {
-  const summary = $("#preflightSummary");
-  if (!state.preflight || state.preflight === runSettingsSnapshot()) return;
-  summary.hidden = false; summary.className = "preflight-summary stale";
-  summary.textContent = "预检已过期：方案或测试数据已改变，请重新检查运行条件。";
-}
-
-async function runPreflight() {
-  if (!state.pipeline || !requireApplied()) return;
-  const summaryEl = $("#preflightSummary");
-  const request = ++preflightRequest;
-  const snapshot = runSettingsSnapshot();
-  state.preflight = snapshot;
-  summaryEl.hidden = false;
-  summaryEl.className = "preflight-summary loading";
-  summaryEl.textContent = "正在检查运行所需的配置与资源…";
-  try {
-    const res = await write("/preflight", "POST", {
-      pipeline: state.pipeline, profile: $("#runProfile").value,
-    }, true);
-    if (request !== preflightRequest || snapshot !== runSettingsSnapshot()) { renderPreflightFreshness(); return; }
-    summaryEl.className = "preflight-summary";
-    const summary = res.summary || {};
-    summaryEl.replaceChildren();
-    const heading = document.createElement("div");
-    heading.className = `preflight-status ${summary.status || "unknown"}`;
-    heading.textContent = summary.status === "ready" ? "✓ 具备试运行条件"
-      : summary.status === "attention_required" ? "⚠ 预检需关注：部分工具或模型资产未就绪"
-      : summary.status === "validation_failed" ? "✗ 方案有待完善的配置"
-      : summary.status === "no_test_data" ? "请选择测试数据" : "运行条件尚未确认";
-    summaryEl.append(heading);
-
-    const desc = document.createElement("p");
-    desc.textContent = "试运行使用当前方案和所选测试数据。";
-    summaryEl.append(desc);
-
-    if (summary.tools) {
-      const toolsP = document.createElement("div");
-      toolsP.textContent = `工具就绪：alg_pipeline_tool=${summary.tools.alg_pipeline_tool ? "✓" : "✗"} · alg_demo=${summary.tools.alg_demo ? "✓" : "✗"}`;
-      summaryEl.append(toolsP);
-    }
-    if (Array.isArray(summary.assets)) {
-      const assetsList = document.createElement("ul");
-      for (const asset of summary.assets) {
-        const li = document.createElement("li");
-        li.textContent = `${asset.model}: ${asset.resolved} [${asset.status}]`;
-        assetsList.append(li);
-      }
-      summaryEl.append(assetsList);
-    }
-    if (summary.next_step) {
-      const nextP = document.createElement("p");
-      nextP.className = "preflight-next-step";
-      nextP.textContent = `后续指引：${summary.next_step}`;
-      summaryEl.append(nextP);
-    }
-  } catch (error) {
-    if (request !== preflightRequest || snapshot !== runSettingsSnapshot()) { renderPreflightFreshness(); return; }
-    summaryEl.className = "preflight-summary error";
-    summaryEl.textContent = `预检执行失败：${error.message}`;
-  }
 }
 
 let editingModelName = "";
@@ -904,13 +590,6 @@ function loadModelEditor(id = "") {
   editingModelName = id;
   $("#modelSelect").value = id;
   const model = state.pipeline?.models?.find(item => item.name === id);
-  const assets = $("#assetSelect"); assets.replaceChildren(new Option("手动配置", ""));
-  for (const asset of state.assets) {
-    const supported = state.catalog.backends?.some(backend => backend.backend_type === asset.model.backend?.type);
-    const availability = asset.availability === "missing" ? "资产缺失" : "文件存在，待验 SHA";
-    const option = new Option(`${asset.label} · ${supported ? availability : "此构建未启用"}`, asset.id);
-    option.disabled = !supported; assets.add(option);
-  }
   $("#modelName").value = model?.name || "";
   $("#modelFile").value = model?.file || "";
   const type = $("#modelType"); type.replaceChildren();
@@ -973,27 +652,6 @@ function updateBackendAvailability() {
   hint.textContent = availability.available ? "当前 Backend 不可用或不兼容，请选择列表中的兼容 Backend。" : availability.message;
 }
 
-$("#assetSelect").addEventListener("change", event => {
-  const asset = state.assets.find(item => item.id === event.target.value);
-  if (!asset) return;
-  try {
-    const model = assetModel(asset);
-    $("#modelType").value = model.type; $("#modelFile").value = model.file;
-    if (!$("#modelName").value) $("#modelName").value = asset.id;
-    renderModelFields(model);
-  } catch (error) { operationFeedback(error.message, true); }
-});
-$("#verifySelection").addEventListener("click", async () => {
-  if (!state.pipeline || !requireApplied()) return;
-  const version = state.pipelineVersion;
-  $("#selectionReport").textContent = "正在计算资产散列并检查编译产物…";
-  try {
-    const report = await write("/selection", "POST", {pipeline: state.pipeline, variant: $("#buildVariant").value, filename: state.filename}, true);
-    if (version !== state.pipelineVersion) return;
-    const summary = [report.ok ? "配置、资产与构建检查通过。" : "选择检查未通过。", "业务效果：尚未验收。请使用 verify_selection.py evaluate 生成数据集验收记录。"];
-    $("#selectionReport").textContent = summary.join("\n") + "\n" + JSON.stringify(report, null, 2);
-  } catch (error) { if (version === state.pipelineVersion) $("#selectionReport").textContent = error.message; }
-});
 $("#modelSelect").addEventListener("change", event => {
   if (!requireApplied()) { event.target.value = editingModelName; return; }
   loadModelEditor(event.target.value);
@@ -1041,8 +699,7 @@ function switchTab(name) {
     button.classList.toggle("active", button.dataset.tab === name);
     button.setAttribute("aria-selected", String(button.dataset.tab === name));
   });
-  for (const tab of ["properties", "models", "json", "validation", "run"]) $(`#${tab}Tab`).hidden = tab !== name;
-  if (["models", "json"].includes(name)) $(".advanced-menu").open = true;
+  for (const tab of ["properties", "models", "json", "validation"]) $(`#${tab}Tab`).hidden = tab !== name;
 }
 
 function setInspectorOpen(open) {
@@ -1166,13 +823,11 @@ $("#pipelineFile").addEventListener("change", async event => {
 $("#newEntryButton").addEventListener("click", () => {
   document.body.classList.remove("operators-hidden");
   $("#operatorsToggle").setAttribute("aria-pressed", "true");
-  $(".create-panel").open = true; $("#cloneProfile").focus();
+  $(".create-panel").open = true; $("#createIo select, #createIo button")?.focus();
   if (!state.pipeline) setInspectorOpen(false);
 });
 $("#welcomeCreate").addEventListener("click", () => $("#newEntryButton").click());
 $("#quickValidateButton").addEventListener("click", () => ensureAppliedOrAction(validate));
-$("#openRunButton").addEventListener("click", () => switchTab("run"));
-$("#runProfile").addEventListener("change", updateEditorStatus);
 $("#newButton").addEventListener("click", () => createPipeline().catch(error => toast(error.message, true)));
 $("#saveButton").addEventListener("click", () => ensureAppliedOrAction(() => save(false)));
 $("#saveAsButton").addEventListener("click", () => ensureAppliedOrAction(() => save(true)));
@@ -1181,17 +836,7 @@ $("#layoutButton").addEventListener("click", () => {
   renderAll();
 });
 $("#operatorSearch").addEventListener("input", renderOperators);
-$("#cloneProfile").addEventListener("change", filterProfiles);
-$("#createMode").addEventListener("change", updateCreateForm);
 $("#validateButton").addEventListener("click", () => ensureAppliedOrAction(validate));
-$("#runButton").addEventListener("click", () => ensureAppliedOrAction(runDraft));
-$("#preflightButton").addEventListener("click", () => ensureAppliedOrAction(runPreflight));
-$("#cancelButton").addEventListener("click", async () => {
-  const run = state.run;
-  if (!run?.id || !runBusy()) return;
-  try { await write(`/runs/${run.id}`, "DELETE", {}); }
-  catch (error) { if (state.run === run) operationFeedback(error.message, true); }
-});
 document.querySelectorAll(".tabs button").forEach(button => button.addEventListener("click", () => switchTab(button.dataset.tab)));
 
 async function applyNode(redraw = true) {
@@ -1210,7 +855,7 @@ async function applyNode(redraw = true) {
     if (newId !== oldId) {
       return await applyAuthoring({ kind: "rename_node", node: oldId, new_name: newId }, {
         except: "node", selected: newId,
-        configure: candidate => { candidate.pipeline.find(n => n.name === newId).params = config; },
+        configure: candidate => { candidate.pipeline.find(n => n.name === oldId).params = config; },
         onCommit: () => {
           if (graph.positions[oldId]) { graph.positions[newId] = graph.positions[oldId]; delete graph.positions[oldId]; savePositions(graph.positions); }
         },

@@ -1,90 +1,70 @@
 # LLM-EdgeFlow Pipeline Studio
 
-Pipeline Studio 是 Pipeline JSON 的可视化编辑器，附带示例数据试运行。JSON 是唯一的方案文档；画布、参数表单和高级 JSON 编辑共用这份文档。节点能力与执行合法性仍来自 C++ Catalog 与 Validator。
-本目录包含 Python 服务端、Web 资源和使用文档。
+Pipeline Studio 是本机 Pipeline JSON 编辑器。画布、参数表单和高级 JSON 编辑共用一份文档，
+能力声明来自目标构建的 C++ Catalog，执行合法性由原生 Validator 判定。
+Studio 负责编辑与保存；模型资产检查和实际执行使用独立工具。
 
 ## 前置条件
 
-先按根目录 [README 的最小构建步骤](../../README.md#1-获取并构建)准备工具与 Demo。
-关键词编排无需模型权重。真实模型使用[匹配的构建变体](../../doc/VERIFIABLE_SELECTION.md#构建变体)。
+按根目录 [README 的最小构建步骤](../../README.md#1-获取并构建)准备 `alg_pipeline_tool`。
+关键词编排无需模型权重；真实模型使用[匹配的构建变体](../../doc/VERIFIABLE_SELECTION.md#构建变体)。
 以下命令从仓库根执行。
 
 ## 终端查看
 
 ```bash
-./tools/pipeline_studio/server.py configs/pipeline_doc_qa_default.json
-./build/alg_show configs/pipeline_doc_qa_default.json
+./build/alg_show configs/pipeline_keyword_match_rules.json
+./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json
 ```
 
-查看器展示声明的 I/O 项、节点 `type` / `name`、`inputs` 引用、`depends_on`，以及模型类别、
-Backend、文件和显式参数。原生查看器只显示已配置的 `backend.params.max_batch_size` 与
-`decode_batch_size`，不推测默认值。查看操作不加载模型，也不生成执行计划。用 `plan` 查询执行顺序和并行层。
+查看器展示声明的 I/O、节点、连接、额外顺序和模型，不加载模型、不生成执行计划。
+用 `alg_pipeline_tool plan` 查看执行顺序和并行层。
 
-## Web 工作台
+## Web 编辑器
 
 ```bash
 ./tools/pipeline_studio/server.py --web
-./tools/pipeline_studio/server.py configs/pipeline_doc_qa_kite.json --web
+./tools/pipeline_studio/server.py configs/pipeline_keyword_match_rules.json --web
 ./tools/pipeline_studio/server.py --web --port 8081
 ```
 
-使用 `--web` 启动服务。服务只监听 `127.0.0.1`。
-启动后，打开终端显示的地址。按 `Ctrl+C` 停止服务。
-如果启动时未指定文件，可在页面点击“打开 JSON…”选择单个 JSON。文件大小不得超过 4 MiB。
+服务仅监听 `127.0.0.1`。打开终端显示的地址，按 `Ctrl+C` 停止服务。
+启动时可指定文件，也可从页面顶部选择已有方案或通过“打开 JSON…”导入单个文件，大小上限 4 MiB。
+“新建方案”选择有序输入输出 Converter 后创建空草稿；复用示例时直接打开对应 JSON，再另存为。
 
-页面直接进入编辑。方案保存为服务 `configs/` 目录下的 `pipeline_[a-z0-9_]+.json`，
-保存时只需输入名称，前缀与扩展名自动补齐。其他位置的文件可通过“打开 JSON…”导入，
-保存为新文件，导入源文件保持原样。
-保存只检查文档结构并原子写入 JSON，允许缺失连接、模型或尚未完成的参数，
-不依赖校验工具、测试样例或模型资源。执行前必须通过原生校验。
-SHA-256 revision 用于防止覆盖其他程序或页签的修改。
+### 编辑与保存
 
-Studio 不管理 `.conf`，没有部署关联或配套保存。服务端试运行时自动创建、清理临时
-JSON / `.conf`，复用现有 Operator / Demo 入口，保持 Pipeline 目录的资源解析基准。
-测试样例提供数据及运行参数，不写入方案 JSON。
+- 从 Catalog 节点库添加步骤，点击节点修改参数。输入输出由 Converter `(type, name)` 选择，
+  与内部节点端口一起显示在画布上。
+- 从输出端口拖到输入端口，或依次点击两个端口连接。类型高亮仅辅助选择，连接由原生工具检查。
+  点击连线后用“删除连线”或 Delete 删除。Esc 取消，端口支持 Enter / 空格选择。
+- 重命名节点同时维护数据引用与额外顺序。断开数据连线保留显式 `depends_on`。
+  撤销/重做支持 Ctrl / ⌘ + Z、Shift + Z 或 Y，文本框保留自己的快捷键。
+- 普通参数完成输入后自动更新；模型设置点击“更新模型”应用。保存、检查会先处理尚未完成的表单，
+  重命名与参数修改在同一次编辑请求中提交。非法输入保留并定位，可用“撤回输入”恢复当前表单。
+- 基本参数表单来自 Definition，复杂值可直接编辑 JSON。模型实例、Backend 参数与节点模型绑定均可编辑。
+  未修改的默认值不写入 JSON；编辑已知字段保留未知参数及暂时缺失的模型绑定。
+- 拖动空白处平移、滚轮缩放；“查看全图”与“放大选中节点”切换阅读范围。连线采用简单折线，
+  可手动移动节点或使用自动布局改善阅读。
+- “检查”展示原生错误码、JSON Pointer 和节点定位。检查状态与保存状态独立，修改后检查结果失效。
 
-### 查看与编辑
-
-- 从示例开始，或打开已有 JSON。已有方案也可从顶部列表打开。
-- 默认隐藏节点库与参数面板；点击“添加步骤”搜索，点击节点查看参数。
-  节点库与参数表单直接显示 Catalog 中的节点类型、说明、字段名和字段语义，可按类型或说明搜索。
-- 常规节点和输入输出参数完成输入后自动更新。保存或试运行会先处理尚未完成的表单；
-  正在提交的重命名完成后会继续执行本次操作，无需再次点击。
-  非法输入保留并展开定位错误，也可用“撤回输入”恢复当前表单，不影响之前已完成的修改。
-  必填及已设置的参数直接显示，其余可选参数收在“更多参数”中。
-  映射与对象数组字段按 Definition 的 `items` 声明提供逐项编辑。
-  嵌套 JSON、模型设置及完整 JSON 编辑保留高级入口；模型设置需点击“更新模型”应用。
-- 修改当前方案不会立即写磁盘。文件状态（已保存／未保存）与检查状态独立显示。
-  不完整方案也能保存；试运行前会检查连接、类型与配置。
-- 有未保存修改时，刷新或关闭页面前会提示确认；修改不在浏览器中暂存。
-- 拖动空白处平移、滚轮缩放。复杂图首次打开优先保持节点可读；“查看全图”主动切换为概览，
-  双击节点或“放大选中节点”可返回局部阅读。参数面板左边缘可拖动调宽，键盘方向键也可调整。
-- 从输出端口拖到输入端口，或依次点击两个端口连接。类型相同的目标高亮；松开或第二次点击时
-  靠近高亮端口即吸附，其他输入端口需直接点中，最终由原生校验判断。拖动接近画布边缘时自动平移。
-  缩小画布时端口命中区放大，但不会覆盖相邻端口。Esc 取消；端口支持键盘 Enter / 空格选择。
-- 点击连线后用“删除连线”或 Delete 删除。额外执行顺序位于步骤高级设置，断开数据连接保留
-  显式 `depends_on`。撤销/重做支持 Ctrl / ⌘ + Z、Shift + Z 或 Y；文本框保留自身快捷键。
-- 默认值只作提示，不把未修改的默认值写入 JSON。未知参数在编辑已知字段时保留。
-- “试运行”打开测试面板，使用当前修改和所选样例，无需先保存。
-  无匹配数据时仍可编辑、保存。结果对应提交时的文档，后续修改会提示结果过期。
-- 检查诊断保留节点定位与原生详情。修复候选先预览，再确认应用；一次修复可以整体撤销。
+保存仅写 `configs/pipeline_[a-z0-9_]+.json`，输入名称后自动补齐前缀和扩展名。
+允许保存缺失连接、模型或参数的半成品，不依赖校验工具和模型资源。
+保存使用 revision 检测覆盖冲突，并在同目录原子发布；拒绝路径逃逸和符号链接。
+导入外部文件不会覆盖源文件，需另存为。离开未保存的文档会提示；浏览器不暂存草稿。
 
 ### 第一次编排
 
-```bash
-./tools/pipeline_studio/server.py --web
-```
+1. 打开 `pipeline_keyword_match_rules.json`。
+2. 点击 `match_keywords`，把 `categories` 中的规则改为需要的关键词。
+3. 删除一条数据连接，点击“检查”，查看缺失输入诊断。
+4. 重新连接或撤销，确认检查通过。
+5. 点击“另存为”，输入 `first_solution`，重开文件核对修改。
+6. 按[运行当前方案](#运行当前方案)调用 Demo 验证实际输出。
 
-1. 点击“从示例开始”，选择 `keyword_match_rules`，创建方案。
-2. 点击 `text_rule_match` 节点，在 `categories` 中将键改为 `FIRST_RUN`，值改为 `VIP`。
-3. 点击“试运行”，使用默认匹配的测试样例，再点击“试运行”。
-4. 检查第一条结果命中 `FIRST_RUN`，第二条未命中。
-5. 点击“保存”，输入名称 `first_solution`，保存为 `configs/pipeline_first_solution.json`。
-
-可以删除一条连接再重新连接，也可撤销恢复。无需了解 `.conf`、Profile 或 Backend 的配置组织。
-输入输出的完整外部载荷仍以 Converter 契约为准；内部节点端口不能替代外部请求/响应契约。
-缺失算法时使用[第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，
-新增平台载体使用[业务接入指南](../../doc/dev_guide/business_onboarding.md)。
+完整外部请求/响应以 Converter 契约为准，内部节点端口不能替代 SDK 业务契约。
+缺失算法见[第一个自定义 Node](../../doc/dev_guide/first_custom_node.md)，
+新增平台载体见[业务接入指南](../../doc/dev_guide/business_onboarding.md)。
 
 ## 自动化 CLI
 
@@ -94,106 +74,85 @@ JSON / `.conf`，复用现有 Operator / Demo 入口，保持 Pipeline 目录的
 ./build/alg_pipeline_tool describe-model embedding onnxruntime
 ./build/alg_pipeline_tool describe-backend onnxruntime
 ./build/alg_pipeline_tool export-schema
-./build/alg_pipeline_tool validate configs/pipeline_doc_qa_default.json
-./build/alg_pipeline_tool plan configs/pipeline_doc_qa_default.json --explain
-./build/alg_pipeline_tool validate-io configs/pipeline_doc_qa_default.conf
-./build/alg_pipeline_tool resolve-conf configs/pipeline_doc_qa_default.conf --root . --depth 2
+./build/alg_pipeline_tool validate configs/pipeline_keyword_match_rules.json
+./build/alg_pipeline_tool plan configs/pipeline_keyword_match_rules.json
+./build/alg_pipeline_tool validate-io configs/pipeline_keyword_match_rules.conf
+./build/alg_pipeline_tool resolve-conf configs/pipeline_keyword_match_rules.conf --root . --depth 2
+./build/alg_pipeline_tool init --input keyword_in/keyword_match --output json_out/keyword_match --raw
 ```
 
-Catalog 的模型条目包含 `model_type`（类别）、`impl_name`（实现）和 `backends`（可选后端）。
-节点依赖用 `model_type` 和 `config_field` 表示绑定要求。Schema 从当前构建的递归声明导出，
-覆盖数组、映射、嵌套结构和 JSON 值。端口语义与执行合法性仍由原生 Validator 判断。
+Catalog 仅提供当前构建的注册能力，不读取 Demo Profiles。模型包含 `model_type`、`impl_name` 和
+`backends`，节点以 `model_type`、`config_field` 声明绑定要求。Schema 从同一套递归字段声明导出。
+类型端口、图与执行语义仍由原生 Validator 校验。
 
-克隆使用 `init --profile NAME`，直接保存 JSON 时加 `--raw`。新建空草稿使用可重复的
-`--input TYPE/NAME --output TYPE/NAME`。只填 I/O 选择，`models`、`pipeline` 是空数组，待补齐后校验。
-Profile 的 `io` 摘要只包含有序 `(type, name)`。容量覆盖不改变外部契约匹配。
-Catalog 的 Profile 条目保留全部显式运行设置（包括 `depth`、`control_cmd` 与 `control_file`），
-并附加 `name` 和 `io`；未设置的运行默认值由 Demo 处理，不写入条目。
-
-`validate` / `plan` 接受 FILE 或 `--stdin`。FILE 按自身目录解析资源。stdin 没有文件位置，
-仅校验路径写法。Model 的 `file` 与声明的文件参数相对 Pipeline JSON 目录，拒绝绝对路径、
-父目录分量和符号链接越界。预检不加载权重。
+`init` 的 `--input` / `--output` 可重复；只生成 I/O 选择及空 `models`、`pipeline` 数组。
+默认返回 `{ok, pipeline}`，`--raw` 直接输出文档。克隆已有方案直接复制 JSON，注意保持相对资源路径。
+`validate` / `plan` 接受 FILE 或 `--stdin`。FILE 按自身目录解析资源，stdin 仅校验路径写法。
+Model 文件与声明的文件参数相对 Pipeline JSON 目录，拒绝绝对路径、父目录分量和符号链接越界。
+预检不加载权重。
 
 ### 原生编辑请求
 
 `alg_pipeline_tool edit --stdin` 接受完整文档 `pipeline` 和互斥的 `operation` 或非空 `operations`。
-`require_valid` 默认为 `false`。为 `true` 时最终候选必须通过校验。最多 128 个动作、4 MiB。
+`require_valid` 默认 `false`，为 `true` 时最终候选必须通过校验。最多 128 个动作、4 MiB。
 
 | 动作 `kind` | 字段 |
 | --- | --- |
-| `add_node` | `type`；可选 `name`、对象 `params`，省略名称时按类型分配唯一名称 |
+| `add_node` | `type`；可选 `name`、对象 `params`，省略名称时分配唯一名称 |
 | `remove_node` | `node` |
 | `rename_node` | `node`、`new_name` |
 | `connect` / `disconnect` | `source`、`target`，各含 `node`、`port` |
 | `add_dependency` / `remove_dependency` | `node`、`depends_on` |
-| `apply_patch` | `patch`：JSON Patch 数组，使用原生 JSON 库执行 |
+| `apply_patch` | `patch`：JSON Patch 数组 |
 
-伪节点 `input` / `output` 代表 I/O 边界。节点名非空、不得含点、不得占用这两个名称。
-目标 `output` 的逻辑端口若匹配多个选中 Converter，返回 `AMBIGUOUS_OUTPUT_PORT` 并列出候选，
-不隐式选择或广播。新增连接和依赖由 Core 检查环，产生 `DAG_CYCLE` 时始终拒绝该动作。
-
-批量动作作用于文档副本。任一动作或严格校验失败不返回候选，动作错误给出
-`failed_operation_index`。成功的 `ok` 表示编辑成功，不完整草稿仍须检查 `validation.ok`。
-命令只输出 JSON。接口见 [PipelineAuthoring](../../src/cli/pipeline_authoring.h)。
-修复预览也使用 `edit` 的 `apply_patch` 操作，共用候选校验。浏览器应用前重新核对文档与工具版本，
-直接展示该次预览的报告，不重复校验同一候选。
+`input` / `output` 是 I/O 伪节点。节点名非空、不得含点或占用这两个名称。
+连接时输出端口匹配多个 Converter 会报告歧义，不隐式选择。
+断线按已保存的引用精确匹配，允许清理已失效的节点或端口引用；多个输出项拥有同一目标端口时仍拒绝歧义。
+新增连接和依赖复用 Core 的环检查，I/O 准备错误不会跳过该检查。
+批量动作作用于副本，失败不返回候选；动作错误带 `failed_operation_index`。
+成功返回候选及最终原生校验报告；`ok` 表示编辑成功，不完整草稿还需检查 `validation.ok`。
+编辑不会生成修复候选。接口见 [PipelineAuthoring](../../src/cli/pipeline_authoring.h)。
 
 <a id="校验工具选择"></a>
 ### 工具选择
 
-生产方案使用 `alg_pipeline_tool`。测试 Model/Backend 使用 `alg_pipeline_tool_test`。
-查询 Catalog、克隆、编辑和校验时，使用同一工具。
-Catalog 在页面启动时加载一次，打开、编辑、撤销不重新加载。
-新增注册后，重新构建工具并刷新页面。测试工具通过不代表生产验证通过。
+生产方案使用 `alg_pipeline_tool`，测试 Model/Backend 使用 `alg_pipeline_tool_test`。
+查询 Catalog、编辑和校验使用同一工具。Catalog 在页面启动时加载一次；工具新增注册后重新构建并刷新页面。
+测试工具通过不代表生产验证通过。
 
 ```bash
 LLM_EDGEFLOW_PIPELINE_TOOL=./build/alg_pipeline_tool_test ./tools/pipeline_studio/server.py --web
-./build/alg_pipeline_tool_test validate demo/fixtures/mock/pipeline_entity_extract_custom.json
 ```
 
 ## 运行当前方案
 
-Studio 使用当前 JSON 与所选测试样例运行，不要求先保存。
-“检查运行条件”复用原生配置解析器，检查模型文件与运行组件，不加载权重。
-模型文件及声明为文件的参数相对 Pipeline JSON 目录解析；导入方案在受控目录试运行时，
-需要在该目录准备相应资源。真实模型效果和目标设备仍需[独立验收](../../doc/VERIFIABLE_SELECTION.md)。
+Studio 保存 JSON 后，在同目录准备 `.conf`，其唯一字段 `pipe_path` 指向 JSON，例如：
 
-运行日志保留末尾 2 MiB。异常、超时也保留日志；取消后回收子进程才发布终态。
-同一服务一次执行一个任务。切换方案隔离异步结果，旧任务仍可取消；不保存跨刷新运行历史。
-测试样例由开发者维护在 `demo/profiles.json`，按有序输入输出契约匹配。
-界面展示实际数据集，完整运行参数仍由 Demo 处理。
+```json
+{"pipe_path":"pipeline_first_solution.json"}
+```
 
-### 在 Studio 外调用 Demo
-
-宿主及 CLI 的部署入口仍使用 `.conf`，其唯一字段 `pipe_path` 指向 JSON。
-这属于调用方的启动配置，Studio 保存 JSON 时不会创建、修改或校验旁边的 `.conf`。
-例如手动创建 `configs/pipeline_first_solution.conf`，内容为
-`{"pipe_path":"pipeline_first_solution.json"}`，然后执行：
+然后使用现有 Operator / Demo 入口运行：
 
 ```bash
 ./build/alg_pipeline_tool validate configs/pipeline_first_solution.json
-./build/alg_pipeline_tool plan configs/pipeline_first_solution.json
+./build/alg_pipeline_tool resolve-conf configs/pipeline_first_solution.conf --root . --depth 1
 ./build/alg_demo --profile keyword_match_rules --config configs/pipeline_first_solution.conf --output-dir results/first-solution
-./build/alg_demo --config configs/pipeline_first_solution.conf --dataset data/corpus_keyword_match.txt --output-dir results/first-solution
 ```
 
-按记录顺序核对结果目录中的 `results.jsonl` 和 `summary.json`。
-需要自定义 `chip`、`device_id`、`batch_size`、`depth` 等运行参数时使用 Demo 的
-`--profiles-file`。热更新见[第一个 Control](../../doc/dev_guide/first_control.md)。
+也可用 `--dataset` 显式指定匹配的数据集。核对结果目录的 `results.jsonl` 和 `summary.json`。
+运行设置由 Demo Profile 管理，Studio 不管理 `.conf`、数据集、运行进程或结果。
+模型资源检查与真实模型效果使用[独立验收工具](../../doc/VERIFIABLE_SELECTION.md)。
 
-## 安全边界与交互回归
+## 交互回归
 
-保存限定受控文件名和目录，拒绝符号链接与路径逃逸。文档先检查结构，再同目录原子替换；执行前调用原生校验。
-文件选择功能只读取用户选中的文件。服务不提供任意路径读取、目录浏览或账号鉴权。
-不要将服务开放到外部网络。
-
-[操作验收标准](acceptance.md) 描述主要任务与桌面布局。Python 套件覆盖 API 和 Web 模块。
-提供已安装的 Playwright 可额外执行真实浏览器回归：
+[操作验收标准](acceptance.md) 覆盖编辑、诊断和安全保存。Python 套件运行 HTTP 与 Web 模块测试。
+已有 Playwright 时可执行真实浏览器回归，无需新增项目依赖：
 
 ```bash
 STUDIO_PLAYWRIGHT_MODULE=/path/to/playwright python3 tests/tooling/test_pipeline_studio.py
 ```
 
-可用 `STUDIO_CHROMIUM_PATH` 指定浏览器、`STUDIO_SCREENSHOT_DIR` 保存截图。受限容器可显式设置
-`STUDIO_BROWSER_NO_SANDBOX=1`。测试仅操作自动清理的临时方案，复用真实关键词 Demo，不需权重。
-最终验收入口为 `./scripts/run_all_tests.sh`，可传入同样的浏览器环境变量。
+可用 `STUDIO_CHROMIUM_PATH` 指定浏览器、`STUDIO_SCREENSHOT_DIR` 保存截图，
+受限容器可显式设置 `STUDIO_BROWSER_NO_SANDBOX=1`。测试使用自动清理的临时文档，不需模型或 Demo。
+最终验收入口为 `./scripts/run_all_tests.sh`，可传入相同浏览器环境变量。

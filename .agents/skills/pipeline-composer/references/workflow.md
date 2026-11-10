@@ -34,26 +34,19 @@ same unchanged target build:
 
 ## Create or clone a solution
 
-For a new solution, prefer cloning a compatible Profile; otherwise create an empty draft.
-For an existing solution, edit the requested files instead of initializing another one.
-Reuse registered nodes; cloning a Pipeline does not retarget the source Profile.
+For a new solution, copy a compatible Pipeline JSON into a new file in the same resource
+directory, or create an empty I/O draft. For an existing solution, edit the requested files.
+Copying a Pipeline does not retarget its source Demo Profile. Catalog contains only registered
+capabilities; Demo Profiles remain in `demo/profiles.json`.
 
 ```bash
-./build/alg_pipeline_tool init --profile <profile_name>
 ./build/alg_pipeline_tool init --input <input_type>/<input_name> --output <output_type>/<output_name>
 ```
 
-`init` normally returns a response containing `ok` and `pipeline`. To save a
-runtime document directly, use `--raw` and a new destination (do not overwrite
-an existing solution):
-
-```bash
-./build/alg_pipeline_tool init --profile <profile_name> --raw > <new_pipeline.json>
-```
-
-Check the command's exit status before using the file, then validate the saved
-document. Input/output options may repeat. An explicit I/O draft contains converter `type` / `name`
-entries and empty `models` / `pipeline` arrays; add the nodes and bindings before validation.
+`init` returns `{ok, pipeline}`. Add `--raw` to output the JSON document directly, and use a new
+destination without overwriting an existing solution. Check the command's exit status before
+using the file. Input/output options may repeat. Drafts contain only converter `type` / `name`
+entries and empty `models` / `pipeline` arrays; add nodes and bindings before validation.
 
 ## Validate changed inputs
 
@@ -81,7 +74,7 @@ After validation, run the edited Pipeline through a compatible Demo. Follow
 `.conf` `pipe_path` resolves to the edited JSON, inspect pipeline-owned `io.input` / `io.output` (type, name and params) and `models[].file`, and select a matching dataset; Demo derives its runner from the configuration. Use
 `alg_pipeline_tool resolve-conf <edited.conf> --root <deployment_root> --depth <max_batch_or_depth>`
 to inspect the native resolved paths, their sources and normalized defaults; it does not load
-weights. Studio can save a JSON + `.conf` pair and command via “另存为可运行方案”. Asset paths in the manifest, model weights and declared file parameters share the Pipeline directory
+weights. Studio saves only JSON; prepare the caller-owned `.conf` separately. Asset paths in the manifest, model weights and declared file parameters share the Pipeline directory
 (`configs` normally); model `file` and declared file parameters resolve relative to the Pipeline
 JSON's directory. For example:
 
