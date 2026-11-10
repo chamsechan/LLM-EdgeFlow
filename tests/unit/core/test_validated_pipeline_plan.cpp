@@ -312,9 +312,14 @@ TEST_F(PipelinePlanningTest,
   root["models"] = Json::array({Model()});
   ExpectError(PipelineValidator::ValidateAndPlan(root, Boundary()),
               error::kUnusedModel, "/models/0/name");
-  root["pipeline"][0]["type"] = "absent_node";
+  root["pipeline"][0]["type"] = "planning_rela";
   const auto plan = PipelineValidator::ValidateAndPlan(root, Boundary());
   ExpectError(plan, error::kUnknownNodeType, "/pipeline/0/type");
+  const auto* diagnostic =
+      FindDiagnostic(plan.report, error::kUnknownNodeType, "/pipeline/0/type");
+  ASSERT_NE(diagnostic, nullptr);
+  EXPECT_TRUE(diagnostic->suggestions.empty());
+  EXPECT_EQ(diagnostic->node_name, "relay");
   EXPECT_EQ(FindDiagnostic(plan.report, error::kUnusedModel, "/models/0/name"),
             nullptr);
 }
@@ -429,12 +434,21 @@ TEST_F(PipelinePlanningTest, RequiresExplicitInputAndStrictSourceReferences) {
                          {"input.", error::kFieldType},
                          {"input.text.more", error::kFieldType},
                          {"missing.text", error::kUnknownNodeReference},
+                         {"inpt.text", error::kUnknownNodeReference},
                          {"input.missing", error::kUnknownPortReference}}) {
     SCOPED_TRACE(example.source);
-    ExpectError(PipelineValidator::ValidateAndPlan(
-                    Pipeline({Node("relay", "planning_relay", example.source)}),
-                    Boundary()),
-                example.code, "/pipeline/0/inputs/text");
+    const auto plan = PipelineValidator::ValidateAndPlan(
+        Pipeline({Node("relay", "planning_relay", example.source)}),
+        Boundary());
+    ExpectError(plan, example.code, "/pipeline/0/inputs/text");
+    if (example.code == error::kUnknownNodeReference) {
+      const auto* diagnostic =
+          FindDiagnostic(plan.report, example.code, "/pipeline/0/inputs/text");
+      ASSERT_NE(diagnostic, nullptr);
+      EXPECT_TRUE(diagnostic->suggestions.empty());
+      EXPECT_EQ(diagnostic->node_name, "relay");
+      EXPECT_EQ(diagnostic->port, "text");
+    }
   }
   auto root = Pipeline({Node("relay")});
   root["pipeline"][0].erase("inputs");
