@@ -77,8 +77,10 @@ inline const T* ReadOutputValue(AlgContext& context,
   return value;
 }
 
-// 为业务错误补充运行时位置，使业务函数无需依赖 Converter ID、批内索引或
-// 端口绑定。
+/**
+ * @brief 为业务错误补充运行时位置，使业务函数无需依赖 Converter ID、批内索引或
+ * 端口绑定。
+ */
 inline int ReturnRowStatus(const AdapterStatus& result, const std::string& id,
                            size_t index, AdapterStatus* status) {
   if (status) {
@@ -107,8 +109,10 @@ bool WriteOutputValue(const ExternalOutputBatchView& destination,
   return true;
 }
 
-// 调用方先完成结果校验与行对齐；回调按原始请求行号组装中性输出值。
-// 只有全部请求的行写入成功才报告 written_count，输出发布仍由 Runtime 负责。
+/**
+ * @brief 调用方先完成结果校验与行对齐；回调按原始请求行号组装中性输出值。
+ * 只有全部请求的行写入成功才报告 written_count，输出发布仍由 Runtime 负责。
+ */
 template <typename Value, typename Encode>
 int WriteOutputRows(size_t count, const OutputEncodeOptions& options,
                     const ExternalOutputBatchView& destination,
@@ -130,8 +134,10 @@ int WriteOutputRows(size_t count, const OutputEncodeOptions& options,
   return error::kOk;
 }
 
-// 每个请求：binding 读取一个中性值，回调完成业务校验与 payload 转换。
-// 所有行通过后才发布请求自有数据。
+/**
+ * @brief 每个请求：binding 读取一个中性值，回调完成业务校验与 payload 转换。
+ * 所有行通过后才发布请求自有数据。
+ */
 template <typename Value, typename Payload, typename Decode>
 int DecodeRequestRows(
     const ExternalInputBatchView& source, const InputDecodeOptions& options,
@@ -158,8 +164,10 @@ int DecodeRequestRows(
   return error::kOk;
 }
 
-// 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架按 req_id 恢复输出行，
-// 回调负责业务字段与序列化。
+/**
+ * @brief 每个请求恰好一个结果 (sub_id == 0)，内部顺序不限。框架按 req_id
+ * 恢复输出行，回调负责业务字段与序列化。
+ */
 template <typename Value, typename Payload, typename Encode>
 int EncodeResultRows(
     AlgContext* context, const OutputEncodeOptions& options,

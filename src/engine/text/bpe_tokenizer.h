@@ -26,24 +26,38 @@ class BpeTokenizer final {
   BpeTokenizer(const BpeTokenizer&) = delete;
   BpeTokenizer& operator=(const BpeTokenizer&) = delete;
 
-  // 以只读 mmap 加载文件；文件须原子替换，加载后不得截断。
+  /**
+   * @brief 以只读 mmap 加载文件；文件须原子替换，加载后不得截断。
+   */
   static std::shared_ptr<const BpeTokenizer> Load(
       const std::string& file, std::string* diagnostic = nullptr) noexcept;
 
-  // 有效 UTF-8，长度不超过 kMaxEncodeBytes；文本中的特殊 token 识别为对应 ID。
-  // 不会自动添加 BOS。
+  /**
+   * @brief 有效 UTF-8，长度不超过 kMaxEncodeBytes；文本中的特殊 token
+   * 识别为对应 ID。不会自动添加 BOS。
+   */
   int Encode(std::string_view text, std::vector<int32_t>* ids,
              std::string* diagnostic = nullptr) const noexcept;
-  // 追加单个 token 的原始字节；特殊 token 追加空串。
+  /**
+   * @brief 追加单个 token 的原始字节；特殊 token 追加空串。
+   */
   int AppendTokenBytes(int32_t id, std::string* bytes,
                        std::string* diagnostic = nullptr) const noexcept;
-  // 完整解码：跳过特殊 token，非法 UTF-8 按解码器参数处理，与 HF 一致。
+  /**
+   * @brief 完整解码：跳过特殊 token，非法 UTF-8 按解码器参数处理，与 HF 一致。
+   */
   int Decode(const std::vector<int32_t>& ids, std::string* text,
              std::string* diagnostic = nullptr) const noexcept;
   bool IsEndToken(int32_t id) const noexcept;
-  // 升序且无重复。
+  /**
+   * @brief 升序且无重复。
+   */
   const std::vector<int32_t>& EndTokens() const noexcept;
-  size_t VocabSize() const noexcept;  // 最大 ID + 1
+  /**
+   * @brief 获取词表的 ID 范围大小。
+   * @return 最大 ID + 1。
+   */
+  size_t VocabSize() const noexcept;
 
  private:
   class Impl;

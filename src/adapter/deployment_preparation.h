@@ -42,6 +42,12 @@ struct PreparedDeployment : IoSelection {
   void Clear() { *this = PreparedDeployment{}; }
 };
 
+/**
+ * @brief 解析部署 I/O，绑定 Converter 与宿主类型，并准备容量参数及 Core
+ * 的类型化边界。模型文件按 Pipeline
+ * 目录解析；这里只准备配置，不加载模型或执行转换。
+ * 成功后提交完整结果，失败时输出保持为空，并给出对应字段的诊断。
+ */
 bool PrepareDeploymentDocument(const nlohmann::json& document,
                                const DeploymentPrepareOptions& options,
                                PreparedDeployment* output,

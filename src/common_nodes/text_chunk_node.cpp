@@ -20,6 +20,11 @@ struct Outputs {
   Int32Batch counts;
 };
 
+/**
+ * @brief 按 Unicode 码点窗口拆分 UTF-8 文本，chunk_size 和 overlap
+ * 均以码点计数。调用方须已校验 chunk_size 为正且 overlap 小于 chunk_size。
+ * 空文本保留一个空片段；非法 UTF-8 返回带字节偏移的失败诊断。
+ */
 NodeResult<std::vector<std::string>> SplitText(const std::string& str,
                                                size_t chunk_size,
                                                size_t overlap) {

@@ -17,6 +17,11 @@ class GeneratedTextEmbeddingModel final
       InferenceConcurrency::kConcurrent;
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
+  /**
+   * @brief 为每条文本添加配置词缀，生成 token 隐藏状态并按 mean 或 last 池化。
+   * 校验 token 与向量的数量、维度及有限性后，按配置归一化。
+   * 立即 EOS 视为无效输出；任一条目失败时清空整批结果，成功时保留来源编号。
+   */
   int Embed(const TextBatch& inputs, EmbeddingBatch* outputs,
             std::string* diagnostic = nullptr) noexcept override;
 

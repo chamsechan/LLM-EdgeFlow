@@ -225,6 +225,11 @@ class LlamaCppDecoder final : public text_generation::IAutoregressiveDecoder {
 
   size_t MaxContextTokens() const noexcept override { return context_size_; }
 
+  /**
+   * @brief 将本次增量 token 按解码批大小追加到请求上下文，返回最后位置的
+   * logits。上下文容量按已消费 token 累计检查；输出复制到调用方持有的向量。
+   * 失败可能已推进底层上下文，调用方应终止本次请求。
+   */
   int Evaluate(const std::vector<int32_t>& tokens, std::vector<float>* logits,
                std::string* diagnostic) noexcept override {
     if (!logits) {
@@ -319,6 +324,11 @@ class LlamaCppTextGenerationSession final : public ITextGenerationSession {
     return BatchPolicy{1, 0};
   }
 
+  /**
+   * @brief 串行使用共享模型，为每次生成创建独立的 llama.cpp 上下文。
+   * 解码与采样交给公共自回归流程，请求结束即释放该上下文，避免请求间状态串扰。
+   * 失败时清空输出并返回框架错误码。
+   */
   int Generate(const std::string& formatted_prompt, bool add_bos,
                const GenerateOptions& options, std::optional<uint64_t> seed,
                std::string* output, std::string* diagnostic) noexcept override {

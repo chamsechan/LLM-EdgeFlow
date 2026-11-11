@@ -29,7 +29,9 @@ class AlgContext {
   AlgContext() = default;
   ~AlgContext() = default;
 
-  // 禁止拷贝与移动（持有多线程锁变量）
+  /**
+   * @brief 禁止拷贝与移动（持有多线程锁变量）
+   */
   AlgContext(const AlgContext&) = delete;
   AlgContext& operator=(const AlgContext&) = delete;
   AlgContext(AlgContext&&) = delete;
@@ -71,7 +73,9 @@ class AlgContext {
     return Read<T>(key.name);
   }
 
-  // 检查是否存在对应 key
+  /**
+   * @brief 检查是否存在对应 key
+   */
   bool Has(const std::string& key) const {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     return data_map_.find(key) != data_map_.end();
@@ -82,7 +86,9 @@ class AlgContext {
     return Has(key.name);
   }
 
-  // 设置最终错误状态，同时记录当前执行线程的诊断供 Pipeline 隔离收集。
+  /**
+   * @brief 设置最终错误状态，同时记录当前执行线程的诊断供 Pipeline 隔离收集。
+   */
   void SetError(int err_code, const std::string& err_msg) {
     std::unique_lock<std::shared_mutex> lock(mutex_);
     err_code_ = err_code;

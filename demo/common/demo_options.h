@@ -86,8 +86,10 @@ int LoadAndValidateProfilesDocument(const std::string& profiles_path,
                                     nlohmann::json* out_root,
                                     std::string* error_msg);
 
-// 只选择并合并 LoadAndValidateProfilesDocument 返回的文档。
-// 这些操作复用同一份已校验快照，不会重新打开文件。
+/**
+ * @brief 只选择并合并 LoadAndValidateProfilesDocument 返回的文档。
+ * 这些操作复用同一份已校验快照，不会重新打开文件。
+ */
 std::vector<std::string> SelectProfilesForSuite(const nlohmann::json& root,
                                                 const std::string& suite_name);
 int MergeProfileOptions(const nlohmann::json& root,

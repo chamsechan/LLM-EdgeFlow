@@ -57,15 +57,23 @@ DECLARE_EXTERNAL_TYPE_TRAITS(MockRerankInput, "MockRerankInput");
 bool ValidatePlatformMetadata(uint32_t count, int32_t type_id) noexcept;
 
 namespace operator_value_detail {
-// 分配嵌套 MockTextOutput 与 capacity + 1 字节缓冲区，byte_size 设为 sizeof。
+/**
+ * @brief 分配嵌套 MockTextOutput 与 capacity + 1 字节缓冲区，byte_size 设为
+ * sizeof。
+ */
 MockTextOutput* AllocateNestedTextOutput(uint32_t capacity,
                                          OwnedExternalBlock* block);
 MockAny* AllocateNestedMockAny(uint32_t count, int32_t type_id,
                                OwnedExternalBlock* block);
-// 只清空 length 与首字节，保留 byte_size 和缓冲区。
+/**
+ * @brief 只清空 length 与首字节，保留 byte_size 和缓冲区。
+ */
 void ResetNestedTextOutput(MockTextOutput* value) noexcept;
 void ResetNestedMockAny(MockAny* value) noexcept;
-// root + 每个文本字段 (sizeof(MockTextOutput) + capacity + 1) + 可选元数据。
+/**
+ * @brief root + 每个文本字段 (sizeof(MockTextOutput) + capacity + 1) +
+ * 可选元数据。
+ */
 bool ComputeStandardOutputBlockPayloadBytes(size_t root_bytes,
                                             const ResolvedOutputPoolSpec& spec,
                                             size_t* bytes,
@@ -82,8 +90,10 @@ struct OutputTextField {
   OutputCapacityFieldConfig capacity;
 };
 
-// reset_scalars 在分配与每次复用时写根结构标量 (byte_size、type 等协议字段
-// 置为固定值，业务字段清零)，嵌套文本由框架清空。
+/**
+ * @brief reset_scalars 在分配与每次复用时写根结构标量 (byte_size、type
+ * 等协议字段置为固定值，业务字段清零)，嵌套文本由框架清空。
+ */
 template <typename T, typename ResetScalars>
 OperatorValueTypeBinding MakePooledOutputBinding(
     const char* suffix, std::vector<OutputTextField<T>> text_fields,
@@ -161,8 +171,10 @@ OperatorValueTypeBinding MakePooledOutputBinding(
   return binding;
 }
 
-// 先校验嵌套布局并清空旧值；src 超过 capacity 时直接失败，不写入部分内容。
-// 成功才复制字节、写结尾 NUL 并设置 length。
+/**
+ * @brief 先校验嵌套布局并清空旧值；src 超过 capacity
+ * 时直接失败，不写入部分内容。成功才复制字节、写结尾 NUL 并设置 length。
+ */
 int CopyToMockTextOutput(std::string_view src, MockTextOutput* dest,
                          uint32_t capacity, const char* field_name,
                          std::string* error) noexcept;

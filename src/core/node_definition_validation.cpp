@@ -78,6 +78,8 @@ bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
     if (error) *error = field_err;
     return false;
   }
+  // 输入生命周期由连线的生产者决定，只有输出可以声明跟随某个输入。
+  // 逻辑端口名不能含 '.'，以免与 Pipeline 的 node.port 引用格式混淆。
   for (const auto& port : definition.inputs) {
     if (!port.lifetime_from_input.empty() ||
         port.logical_name.find('.') != std::string::npos)
@@ -128,6 +130,7 @@ bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
       }
       return false;
     }
+    // 模型实例由每份 Pipeline 显式绑定，不能通过默认名称隐式选中模型。
     if (!it->required || !it->default_value.is_null()) {
       if (error) {
         *error = "Model dependency config_field '" + dep.config_field +

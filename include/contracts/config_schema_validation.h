@@ -112,6 +112,12 @@ inline bool IsValueAboveMaximum(const nlohmann::json& val, double max_val) {
 
 }  // namespace detail
 
+/**
+ * @brief
+ * 在使用配置规格前递归检查字段声明，包含名称唯一性、约束适用类型和嵌套规格。
+ * 默认值须满足同一套字段规范化规则，避免运行时接受不合法的默认配置。
+ * 首个声明错误返回 false，并在 error 非空时写入原因。
+ */
 inline bool ValidateConfigFieldDefinitions(
     const std::vector<ConfigFieldDefinition>& fields, std::string* error) {
   std::unordered_set<std::string> seen_names;
@@ -216,6 +222,12 @@ inline bool ConfigError(std::vector<ConfigFieldValidationError>* errors,
   return false;
 }
 
+/**
+ * @brief
+ * 按字段声明检查对象、拒绝未知字段，并为缺省的非必填字段补入已声明的默认值。
+ * 嵌套错误按 JSON Pointer 路径追加到 errors，允许一次收集多个字段问题。
+ * 仅当整个对象校验成功时替换 normalized，失败时保留原输出。
+ */
 inline bool NormalizeConfigObject(
     const std::vector<ConfigFieldDefinition>& fields,
     const nlohmann::json& input, nlohmann::json* normalized,

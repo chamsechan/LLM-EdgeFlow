@@ -24,8 +24,11 @@ inline bool IsTextTemplateIdentifier(std::string_view name) {
   return true;
 }
 
-// 只有 {{name}} 占位符是变量。单花括号保持字面量（如 JSON）；双花括号始终
-// 表示变量，无转义语法。只编译原始模板，绝不编译插入的请求文本。
+/**
+ * @brief 只有 {{name}} 占位符是变量。单花括号保持字面量（如
+ * JSON）；双花括号始终
+ * 表示变量，无转义语法。只编译原始模板，绝不编译插入的请求文本。
+ */
 inline bool ParseTextTemplate(const std::string& pattern,
                               std::vector<TextTemplateToken>* tokens,
                               std::string* error = nullptr) {

@@ -90,6 +90,11 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 
+/**
+ * @brief 汇总单条文本的词表和规则命中，首个带类别的命中决定摘要字段。
+ * 正则捕获与规则常量写入槽位，后续同名值覆盖已有值。
+ * 无命中时可应用默认类别；正则执行出错返回失败，不按未命中处理。
+ */
 NodeResult<RuleMatchItem> MatchSentence(const Params& state,
                                         const std::string& sentence) {
   RuleMatchItem result;

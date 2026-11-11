@@ -119,7 +119,10 @@ uint64_t AlignUp4(uint64_t value) noexcept {
   return (value + 3U) & ~uint64_t{3};
 }
 
-// CRC-32/IEEE，与 Python zlib.crc32 一致。只用来发现意外损坏，不是认证手段。
+/**
+ * @brief CRC-32/IEEE，与 Python zlib.crc32
+ * 一致。只用来发现意外损坏，不是认证手段。
+ */
 uint32_t Crc32(const unsigned char* bytes, size_t size) noexcept {
   static const std::array<uint32_t, 256> table = [] {
     std::array<uint32_t, 256> t{};
@@ -146,7 +149,9 @@ bool HostIsLittleEndian() noexcept {
   return first == 1;
 }
 
-// FNV-1a 64 位，取低位定位；与生成工具一致。
+/**
+ * @brief FNV-1a 64 位，取低位定位；与生成工具一致。
+ */
 uint64_t HashBytes(const char* bytes, size_t size) noexcept {
   uint64_t hash = UINT64_C(14695981039346656037);
   for (size_t i = 0; i < size; ++i) {
@@ -202,9 +207,11 @@ void AppendCodePoint(std::string* out, uint32_t code_point) {
   }
 }
 
-// 读取一个码点。遇到非法序列时返回 false，pos 前进到最大有效前缀之后，
-// 出错的下一字节留给下一次读取，与 Rust String::from_utf8_lossy 的替换规则
-// 相同。
+/**
+ * @brief 读取一个码点。遇到非法序列时返回 false，pos 前进到最大有效前缀之后，
+ * 出错的下一字节留给下一次读取，与 Rust String::from_utf8_lossy 的替换规则
+ * 相同。
+ */
 bool ReadLossyCodePoint(std::string_view text, size_t* pos) noexcept {
   const unsigned char lead = static_cast<unsigned char>(text[(*pos)++]);
   if (lead < 0x80) return true;
@@ -227,7 +234,9 @@ bool ReadLossyCodePoint(std::string_view text, size_t* pos) noexcept {
   return true;
 }
 
-// 有损 UTF-8 解码：每个最大非法子序列替换为一个 U+FFFD。
+/**
+ * @brief 有损 UTF-8 解码：每个最大非法子序列替换为一个 U+FFFD。
+ */
 void AppendLossyUtf8(std::string_view bytes, std::string* out) {
   out->reserve(out->size() + bytes.size());
   for (size_t pos = 0; pos < bytes.size();) {
@@ -240,7 +249,9 @@ void AppendLossyUtf8(std::string_view bytes, std::string* out) {
   }
 }
 
-// 把 token 文本中的 U+2581 换成空格，其余字节原样追加。
+/**
+ * @brief 把 token 文本中的 U+2581 换成空格，其余字节原样追加。
+ */
 void AppendWithSpaces(const char* piece, size_t size, std::string* out) {
   size_t begin = 0;
   for (size_t i = 0; i + kMetaspaceBytes <= size;) {
@@ -263,7 +274,9 @@ int HexValue(char c) noexcept {
   return -1;
 }
 
-// 解析 "<0xXX>"（大写十六进制）；格式不符返回 -1。
+/**
+ * @brief 解析 "<0xXX>"（大写十六进制）；格式不符返回 -1。
+ */
 int ParseByteToken(std::string_view piece) noexcept {
   if (piece.size() != 6 || piece.substr(0, 3) != "<0x" || piece[5] != '>') {
     return -1;
@@ -273,8 +286,10 @@ int ParseByteToken(std::string_view piece) noexcept {
   return high < 0 || low < 0 ? -1 : high * 16 + low;
 }
 
-// 把 float 的位模式映射为保序的 uint32：分数越高值越大；-0.0 与 +0.0 视为相同。
-// 直接作用于文件中的位模式，热路径上不需要 float 局部变量。
+/**
+ * @brief 把 float 的位模式映射为保序的 uint32：分数越高值越大；-0.0 与 +0.0
+ * 视为相同。直接作用于文件中的位模式，热路径上不需要 float 局部变量。
+ */
 uint32_t ScorePriority(uint32_t bits) noexcept {
   if (bits == 0x80000000U) bits = 0;
   return (bits & 0x80000000U) ? ~bits : (bits | 0x80000000U);
@@ -399,9 +414,12 @@ class BpeTokenizer::Impl final {
     }
 
    private:
-    // 依次比较：优先级、左段码点数、右段码点数（都是越大越先）、合成 token 的
-    // ID（越小越先）、位置（越靠左越先）。rank 模式下相同排名意味着相同的
-    // 合并规则，后面几项必然相同，所以只有最后的“最左”起作用。
+    /**
+     * @brief 依次比较：优先级、左段码点数、右段码点数（都是越大越先）、合成
+     * token 的 ID（越小越先）、位置（越靠左越先）。rank
+     * 模式下相同排名意味着相同的
+     * 合并规则，后面几项必然相同，所以只有最后的“最左”起作用。
+     */
     static bool Higher(const Candidate& a, const Candidate& b) noexcept {
       if (a.priority != b.priority) return a.priority > b.priority;
       if (a.left_chars != b.left_chars) return a.left_chars > b.left_chars;
@@ -413,7 +431,9 @@ class BpeTokenizer::Impl final {
     size_t size_ = 0;
   };
 
-  // 热路径用指针和长度，不构造 string_view（原因同 Lookup）。
+  /**
+   * @brief 热路径用指针和长度，不构造 string_view（原因同 Lookup）。
+   */
   const char* PieceData(uint32_t id) const noexcept {
     return pool_ + offsets_[id];
   }
@@ -425,7 +445,9 @@ class BpeTokenizer::Impl final {
                             offsets_[id + 1] - offsets_[id]);
   }
   uint8_t Kind(uint32_t id) const noexcept { return kinds_[id]; }
-  // 字节回退 token 的字节值，由 "<0xXX>" 推出；加载时已确认格式。
+  /**
+   * @brief 字节回退 token 的字节值，由 "<0xXX>" 推出；加载时已确认格式。
+   */
   char ByteValue(uint32_t id) const noexcept {
     return static_cast<char>(ParseByteToken(Piece(id)));
   }
@@ -434,16 +456,22 @@ class BpeTokenizer::Impl final {
     std::memcpy(&value, scores_ + id, sizeof(value));
     return value;
   }
-  // 热路径上的函数不接受 string_view 参数：在带 AddressSanitizer 的构建里，
-  // 对按值传入的参数调用成员函数会使每次调用都很慢。
+  /**
+   * @brief 热路径上的函数不接受 string_view 参数：在带 AddressSanitizer
+   * 的构建里，对按值传入的参数调用成员函数会使每次调用都很慢。
+   */
   int32_t Lookup(const char* bytes, size_t size) const noexcept;
   int32_t MatchAddedToken(const char* text, size_t size,
                           size_t* length) const noexcept;
-  // 给出左右相邻符号合并的候选；没有可用合并时返回 false。
+  /**
+   * @brief 给出左右相邻符号合并的候选；没有可用合并时返回 false。
+   */
   bool MakeCandidate(const char* word_data, const std::vector<Symbol>& symbols,
                      uint32_t left, uint32_t right,
                      Candidate* candidate) const noexcept;
-  // 成功返回 0，失败返回框架错误码并写入 reason。
+  /**
+   * @brief 成功返回 0，失败返回框架错误码并写入 reason。
+   */
   int EncodeSegment(std::string_view segment, std::vector<int32_t>* ids,
                     const char** reason) const;
   int MergeWord(std::string_view word, std::vector<int32_t>* ids,
@@ -479,6 +507,11 @@ class BpeTokenizer::Impl final {
   UnicodeTables unicode_;
 };
 
+/**
+ * @brief 接管映射文件并校验文件头、CRC、区段布局及各索引之间的一致性。
+ * 内部表视图直接借用该映射，映射由本实例持有；不复制完整词表。
+ * 返回 false 的实例不可用于编解码，reason 说明首个检查失败原因。
+ */
 bool BpeTokenizer::Impl::Init(std::unique_ptr<MappedFile> file,
                               std::string* reason) {
   const auto fail = [reason](const char* message) {
@@ -764,7 +797,9 @@ int32_t BpeTokenizer::Impl::Lookup(const char* bytes,
   return -1;
 }
 
-// 在 text 开头做最长匹配；匹配失败返回 -1。
+/**
+ * @brief 在 text 开头做最长匹配；匹配失败返回 -1。
+ */
 int32_t BpeTokenizer::Impl::MatchAddedToken(const char* text, size_t size,
                                             size_t* length) const noexcept {
   if (size == 0) return -1;
@@ -833,6 +868,11 @@ bool BpeTokenizer::Impl::MakeCandidate(const char* word_data,
   return true;
 }
 
+/**
+ * @brief 对一个预分词片段执行 BPE 合并，并把结果追加到 ids。
+ * 按文件声明选择字节或码点初始单位及 rank 或 score 优先级，
+ * 用候选堆合并相邻符号；无法表示的码点仅在启用字节回退时继续编码。
+ */
 int BpeTokenizer::Impl::MergeWord(std::string_view word,
                                   std::vector<int32_t>* ids,
                                   const char** reason) const {
@@ -944,6 +984,11 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
   return error::kOk;
 }
 
+/**
+ * @brief 对不含特殊 token 的普通片段应用文件指定的规范化和预分词规则。
+ * 各片段独立执行 BPE，结果依次追加到 ids；失败时由外层编码入口清理输出。
+ * 特殊 token 的识别由调用方完成，避免规范化改写其原始字节。
+ */
 int BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
                                       std::vector<int32_t>* ids,
                                       const char** reason) const {

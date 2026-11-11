@@ -117,7 +117,9 @@ struct NodeFailure {
 template <typename T>
 class [[nodiscard]] NodeResult {
  public:
-  // 禁止默认构造，避免未初始化或语义不明的状态。
+  /**
+   * @brief 禁止默认构造，避免未初始化或语义不明的状态。
+   */
   NodeResult() = delete;
 
   NodeResult(T value) : storage_(std::move(value)) {}  // NOLINT

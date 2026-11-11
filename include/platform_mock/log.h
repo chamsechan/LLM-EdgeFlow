@@ -62,8 +62,10 @@ EDGEFLOW_API int AlgBase_getLogLevelByName(const char* name) ALG_LOG_NOEXCEPT;
 }
 #endif
 
-// 外网开发用打印替身。正式平台接入时由平台日志实现替换。
-// 只提供基本 stderr 输出；不承诺记录原子性或平台的输出格式。
+/**
+ * @brief 外网开发用打印替身。正式平台接入时由平台日志实现替换。
+ * 只提供基本 stderr 输出；不承诺记录原子性或平台的输出格式。
+ */
 ALG_LOG_PRINTF_ATTRIBUTE(3, 4)
 static inline void MockLogWriteRecord(const char* level_label, const char* name,
                                       const char* fmt, ...) ALG_LOG_NOEXCEPT {

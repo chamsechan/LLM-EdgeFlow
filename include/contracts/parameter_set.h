@@ -60,7 +60,7 @@ class ParameterSet {
 
   template <typename P>
   ParameterSet(
-      Parameters<P> spec) {  // NOLINT: Definition accepts a typed spec.
+      Parameters<P> spec) {  // NOLINT: Definition 可直接接收类型化参数规格。
     auto owned = std::make_shared<const Parameters<P>>(std::move(spec));
     fields_ = owned->Fields();
     parse_ = [owned](const nlohmann::json& config,

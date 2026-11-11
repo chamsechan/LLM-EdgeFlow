@@ -12,6 +12,10 @@ const std::unordered_set<std::string>& ValidCardinalities();
 const std::unordered_set<std::string>& ValidProvenance();
 const std::unordered_set<std::string>& ValidLifetimes();
 
+/**
+ * @brief 校验一组端口的名称、类型及流属性声明；遇到首个错误即返回 false。
+ * 非空 seen_keys 会累积已检查的名称，用于拒绝重复端口；失败时不回滚该集合。
+ */
 template <typename Port>
 bool ValidatePortDefinitions(const std::vector<Port>& ports,
                              std::unordered_set<std::string>* seen_keys,
@@ -55,6 +59,14 @@ bool ValidatePortDefinitions(const std::vector<Port>& ports,
   return true;
 }
 
+/**
+ * @brief 校验 NodeDefinition 声明的结构一致性，供 Node 注册阶段使用。
+ * 检查端口、组合约束、Control schema、配置字段及模型依赖声明；
+ * 实际 Pipeline 的连线和模型绑定由 PipelineValidator 校验。
+ * @param definition 待校验的 Node 声明。
+ * @param error 可选的诊断输出，成功时清空，失败时写入原因。
+ * @return true 声明通过结构校验，false 声明不合法。
+ */
 bool ValidateNodeDefinitionStructure(const NodeDefinition& definition,
                                      std::string* error = nullptr);
 

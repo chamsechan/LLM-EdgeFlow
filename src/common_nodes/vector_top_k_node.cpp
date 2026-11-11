@@ -41,6 +41,11 @@ float DotProduct(const std::vector<float>& v1, const std::vector<float>& v2) {
   return dot;
 }
 
+/**
+ * @brief 为每个请求的唯一查询筛选向量候选，按相似度降序返回通过阈值的前 top_k
+ * 项。会话级候选统一使用 req_id 0；候选文本按完整来源键关联。输出 sub_id
+ * 按排名重新编号，原候选 sub_id 保存在 RankedCandidate 中。
+ */
 NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
   const auto* queries = inputs.queries;
   const auto* candidates = inputs.candidates;

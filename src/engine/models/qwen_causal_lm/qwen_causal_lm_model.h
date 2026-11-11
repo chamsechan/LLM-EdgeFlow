@@ -36,6 +36,12 @@ class QwenCausalLmModel final
                std::string* diagnostic = nullptr) noexcept override;
 
  private:
+  /**
+   * @brief 为单条输入套用 ChatML 模板；显式设置非负 random_seed 且 Session
+   * 支持时，按来源编号派生随机种子。调用文本生成协议后移除尾部不完整的 UTF-8
+   * 序列；失败时清空该条输出。模板和种子语义在 Model 层确定，Backend
+   * 接收已格式化的 prompt。
+   */
   int GenerateOne(const TraceableItem<std::string>& prompt,
                   const GenerateOptions& options, std::string* output,
                   std::string* diagnostic) noexcept;

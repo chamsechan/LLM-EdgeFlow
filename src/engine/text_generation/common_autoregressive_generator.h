@@ -25,8 +25,10 @@ class IAutoregressiveDecoder {
   virtual bool IsEndToken(int32_t token) const noexcept = 0;
   virtual size_t MaxContextTokens() const noexcept = 0;
 
-  // 首次调用接收完整 prompt，后续调用只接收新采样的 token；
-  // 增量状态由具体解码器维护。
+  /**
+   * @brief 首次调用接收完整 prompt，后续调用只接收新采样的 token；
+   * 增量状态由具体解码器维护。
+   */
   virtual int Evaluate(const std::vector<int32_t>& incremental_tokens,
                        std::vector<float>* logits,
                        std::string* diagnostic = nullptr) noexcept = 0;
@@ -35,12 +37,19 @@ class IAutoregressiveDecoder {
 bool ValidateGenerateOptions(const GenerateOptions& options,
                              std::string* diagnostic = nullptr) noexcept;
 
-// text 中没有出现任何停止词时返回 std::string::npos。
+/**
+ * @brief text 中没有出现任何停止词时返回 std::string::npos。
+ */
 size_t FindFirstStop(const std::string& text,
                      const std::vector<std::string>& stop_words) noexcept;
 
 class CommonAutoregressiveGenerator final {
  public:
+  /**
+   * @brief 使用单次请求的解码状态完成 prompt 编码、增量推理和采样。
+   * 生成步数同时受 max_tokens 与剩余上下文限制；遇 EOS 或停止词结束，
+   * 输出不含停止词及尾部不完整的 UTF-8 序列，失败时清空输出。
+   */
   static int Generate(IAutoregressiveDecoder& decoder,
                       const std::string& formatted_prompt, bool add_bos,
                       const GenerateOptions& options,

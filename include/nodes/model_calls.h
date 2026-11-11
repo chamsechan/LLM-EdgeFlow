@@ -33,6 +33,12 @@ inline NodeResult<OutputBatchT> ConvertAlignedOutputs(
   return NodeResult<OutputBatchT>::Success(std::forward<OutputBatchT>(outputs));
 }
 
+/**
+ * @brief 调用已绑定模型并将错误码与诊断转换为
+ * NodeResult，空输入直接返回空批次。
+ * 模型成功后仍检查输出数量、顺序和来源编号与输入一致，
+ * 防止不符合保序契约的结果继续进入 Node 算法。
+ */
 template <typename OutputBatchT, typename InputBatchT, typename ModelT,
           typename InvokeT>
 NodeResult<OutputBatchT> InvokeAlignedModel(

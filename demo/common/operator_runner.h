@@ -106,7 +106,9 @@ struct OperatorHandleGuard {
   OperatorHandleGuard& operator=(const OperatorHandleGuard&) = delete;
 };
 
-// Control 必须显式提供命令号和 JSON 文件。
+/**
+ * @brief Control 必须显式提供命令号和 JSON 文件。
+ */
 inline int ApplyOperatorControl(
     const DemoOptions& options,
     const llm_edgeflow::operator_api::OperatorFunc& ops, void* handle) {
@@ -143,7 +145,8 @@ inline int ApplyOperatorControl(
 }
 
 /**
- * @brief 统一校验配置、解析芯片与模型路径并创建 Operator 实例
+ * @brief 将 Demo 的设备、配置路径及输出深度转换为公开参数并创建 Operator 句柄
+ * 成功后句柄交由调用方销毁；创建失败时复制并展示 SDK 诊断。
  * @return 0 成功，3 参数/配置错误，5 Operator 创建失败。
  */
 inline int CreateOperatorInstance(
@@ -201,6 +204,12 @@ inline int CreateOperatorInstance(
   return 0;
 }
 
+/**
+ * @brief 按 SDK 解析的 I/O 契约选择载体，分批调用 Operator
+ * 并收集展示结果与耗时。每批结果在归还输出租约前复制到 Demo
+ * 自有数据，句柄由作用域守卫销毁。全部批次完成后写出结果；失败时返回相应的
+ * Demo 退出码。
+ */
 inline int RunOperatorDemo(const DemoOptions& options) {
   using namespace llm_edgeflow::operator_api;
   OperatorIoContract contract;

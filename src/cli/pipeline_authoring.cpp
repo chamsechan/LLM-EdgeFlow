@@ -25,7 +25,9 @@ nlohmann::json* FindNode(nlohmann::json* pipeline, const std::string& name) {
   return found;
 }
 
-// 校验临时编辑协议，而非持久化的 Pipeline schema。
+/**
+ * @brief 校验临时编辑协议，而非持久化的 Pipeline schema。
+ */
 void CheckFields(const nlohmann::json& value,
                  std::initializer_list<const char*> allowed) {
   if (!value.is_object()) throw std::invalid_argument("字段必须是对象");
@@ -98,6 +100,12 @@ struct ResolvedEndpoint {
   std::string Source() const { return node + "." + port; }
 };
 
+/**
+ * @brief
+ * 将编辑端点解析为注册端口契约及消费方的文档位置，拒绝不存在或有歧义的端口。
+ * existing_binding 用于断线清理，只定位已保存的引用，允许删除已失效能力的连线。
+ * 返回的消费方指针借用 pipeline 内部对象，文档结构变化后须重新解析。
+ */
 ResolvedEndpoint ResolveEndpoint(nlohmann::json* pipeline,
                                  const nlohmann::json& endpoint, bool source,
                                  bool existing_binding = false) {
@@ -189,7 +197,9 @@ nlohmann::json& Inputs(nlohmann::json* consumer) {
   return (*consumer)["inputs"];
 }
 
-// 引用只按源节点前缀改写，保留其他节点的输入与显式顺序约束。
+/**
+ * @brief 引用只按源节点前缀改写，保留其他节点的输入与显式顺序约束。
+ */
 bool RewriteInputs(nlohmann::json* item, const std::string& name,
                    const std::optional<std::string>& replacement) {
   if (!item->contains("inputs") || !(*item)["inputs"].is_object()) return false;
@@ -213,6 +223,10 @@ bool RewriteInputs(nlohmann::json* item, const std::string& name,
   return changed;
 }
 
+/**
+ * @brief 在节点重命名或删除时，同步改写输入连线、depends_on 和 I/O 输出引用。
+ * replacement 为空表示删除引用；返回受影响的节点名，含受影响的 output 边界。
+ */
 std::vector<std::string> RewriteReferences(
     nlohmann::json* pipeline, const std::string& name,
     const std::optional<std::string>& replacement) {
@@ -250,6 +264,10 @@ std::vector<std::string> RewriteReferences(
   return affected;
 }
 
+/**
+ * @brief 执行已检查结构的单个编辑操作，并记录变更涉及的节点或端口。
+ * 本函数直接修改候选文档，可能抛异常；候选副本隔离与增边拒环由外层负责。
+ */
 bool ApplyMutation(nlohmann::json* pipeline, const nlohmann::json& operation,
                    std::vector<AuthoringChange>* changes, std::string* error) {
   const auto kind = operation["kind"].get<std::string>();
@@ -380,6 +398,10 @@ bool ApplyMutation(nlohmann::json* pipeline, const nlohmann::json& operation,
   return true;
 }
 
+/**
+ * @brief 在副本上执行编辑，操作成功后才替换传入文档并追加变更记录。
+ * 新增连线或顺序依赖时复用 Core 拒绝环；其他语义问题允许留给最终文档校验。
+ */
 bool ApplyOperation(nlohmann::json* pipeline, const nlohmann::json& operation,
                     std::vector<AuthoringChange>* changes, std::string* error,
                     std::optional<DocumentValidationResult>* validation) {

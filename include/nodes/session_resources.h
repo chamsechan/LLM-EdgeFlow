@@ -17,8 +17,11 @@ class SessionResources {
   SessionResources() = default;
   explicit SessionResources(SessionContext& session) : session_(&session) {}
 
-  // 普通工厂返回值或 NodeFailure。现有的会话 single-flight 机制会把失败共享给
-  // 等待者，并允许下次调用重试。其他异常仍会到达 Node 运行时的异常屏障。
+  /**
+   * @brief 普通工厂返回值或 NodeFailure。现有的会话 single-flight
+   * 机制会把失败共享给等待者，并允许下次调用重试。其他异常仍会到达 Node
+   * 运行时的异常屏障。
+   */
   template <typename T, typename Factory>
   NodeResult<std::shared_ptr<T>> GetOrCreateResult(
       const SessionResourceKey<T>& key, Factory&& factory) const {

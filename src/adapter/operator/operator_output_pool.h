@@ -47,6 +47,11 @@ enum class BlockState { kFree, kCheckedOut };
  */
 class OutputPoolState : public std::enable_shared_from_this<OutputPoolState> {
  public:
+  /**
+   * @brief 按宿主分配器绑定解析布局并预分配固定深度的输出池，深度为 0
+   * 时使用默认值。池持有 binding
+   * 的副本；全部块准备完成后才交付，失败时输出为空。
+   */
   static int Create(const std::string& suffix, uint32_t depth,
                     const ResolvedOutputPoolSpec& spec,
                     const OperatorValueTypeBinding* binding,
@@ -176,12 +181,20 @@ struct AcquiredOutputBlock {
   size_t output_index = 0;
 };
 
+/**
+ * @brief 按调用方请求的行和槽位检出输出块，记录其位置并立即交由租约守卫管理。
+ * 池满时等待；中途失败可能已检出部分块，由调用方的守卫统一回滚。
+ */
 int AcquireRuntimeOutputBlocks(
     const RuntimeOutputBatch& outputs,
     const std::vector<std::shared_ptr<OutputPoolState>>& output_pools,
     ScopedOutputLeaseGuard* lease_guard,
     std::vector<AcquiredOutputBlock>* acquired_blocks, std::string* error);
 
+/**
+ * @brief 为已编码的输出块建立租约，全部暂存成功后再写入调用方既有槽位。
+ * 租约仅弱引用池，不延长池内存的生命周期。
+ */
 void PublishRuntimeOutputs(
     const std::vector<AcquiredOutputBlock>& acquired_blocks,
     RuntimeOutputBatch* outputs, ScopedOutputLeaseGuard* lease_guard);

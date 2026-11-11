@@ -28,6 +28,11 @@ struct ResolvedOperatorConfig {
  */
 class OperatorConfigResolver {
  public:
+  /**
+   * @brief 在部署根目录内解析配置文件，生成接入计划、池深度和批次上限。
+   * 配置路径须为相对路径且不得越界；模型文件相对 Pipeline 目录解析。
+   * 配置或计划失败时返回错误码和诊断，不创建运行时资源。
+   */
   static int Resolve(const char* model_path, const char* cfg_file_name,
                      ResolvedOperatorConfig* result, std::string* error_msg,
                      uint32_t max_frame_depth = kDefaultOutputPoolDepth,

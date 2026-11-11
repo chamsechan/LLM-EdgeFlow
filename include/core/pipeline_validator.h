@@ -66,10 +66,19 @@ struct PipelineIoBoundary {
 
 class PipelineValidator {
  public:
+  /**
+   * @brief 解析配置并结合注册能力和 I/O 边界生成执行计划，不加载模型或初始化
+   * Node。计划包含端口绑定、模型选择和并发分层；仅 report.ok 为 true
+   * 时可用于构建。
+   */
   static ValidatedPipelinePlan ValidateAndPlan(
       const nlohmann::json& root, const PipelineIoBoundary& io_boundary);
 
-  // 直接消费 ParsePipelineConfig 的成功结果，不重新解析 JSON。
+  /**
+   * @brief 对 ParsePipelineConfig
+   * 的成功结果执行同一语义校验与规划，接收配置所有权。
+   * 调用方须保留解析得到的结构约束；本入口不重新解析 JSON。
+   */
   static ValidatedPipelinePlan ValidateParsedAndPlan(
       ParsedPipelineConfig config, const PipelineIoBoundary& io_boundary);
 };

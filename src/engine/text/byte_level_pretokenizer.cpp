@@ -8,7 +8,9 @@ namespace llm_edgeflow {
 namespace text {
 namespace {
 
-// (?i) 下的 ASCII 字母折叠；U+017F（长 s）与 s 等价。
+/**
+ * @brief (?i) 下的 ASCII 字母折叠；U+017F（长 s）与 s 等价。
+ */
 uint32_t FoldCase(uint32_t code_point) noexcept {
   if (code_point >= 'A' && code_point <= 'Z') return code_point + 32;
   return code_point == 0x17F ? uint32_t{'s'} : code_point;

@@ -20,7 +20,9 @@ class RegistryConflicts {
 
   bool HasConflict() const noexcept { return has_conflict_; }
 
-  // 已记录的消息；存在冲突时绝不为空。
+  /**
+   * @brief 已记录的消息；存在冲突时绝不为空。
+   */
   std::vector<std::string> Messages() const {
     if (has_conflict_ && messages_.empty()) {
       return {"Registry conflict recorded without a stored message"};

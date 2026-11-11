@@ -43,6 +43,12 @@ class IoPlanResolver {
       DeploymentDiagnostic* out_diagnostic = nullptr,
       uint32_t output_pool_depth = kDefaultOutputPoolDepth);
 
+  /**
+   * @brief
+   * 将完整部署文档解析为可供运行时消费的接入计划，并校验输出池总载荷预算。 DAG
+   * 与类型边界交由 PipelineValidator 校验；输入仅保留被计划引用的端口。
+   * 成功时保存有效参数和解析后的文档快照，失败时不交付计划。
+   */
   static int ResolveFromPipelineJson(
       const nlohmann::json& pipeline_json, const std::string& pipeline_dir,
       std::unique_ptr<ValidatedIoPlan>* out_plan, std::string* out_error,

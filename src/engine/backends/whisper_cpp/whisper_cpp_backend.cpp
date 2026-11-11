@@ -86,6 +86,11 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
     return false;
   }
 
+  /**
+   * @brief 对 16 kHz PCM 串行转写，每次调用创建独立的 whisper_state。
+   * 在局部缓冲中拼接所有分段文本，容量检查通过后才提交输出。
+   * 空音频返回空文本；转写或容量检查失败时保留空输出。
+   */
   int Transcribe(const AudioPcmPayload& audio,
                  const AudioTranscriptionOptions& options, std::string* output,
                  std::string* diagnostic = nullptr) noexcept override {

@@ -58,6 +58,11 @@ struct Inputs {
   const OcrDocumentBatch* document = nullptr;
 };
 
+/**
+ * @brief 按 primary 的样本键渲染模板，其余输入按 req_id
+ * 聚合后供同请求的样本复用。没有 primary 样本时，每个聚合请求生成一条 sub_id
+ * 为 0 的结果。超长文本按配置报错，或在 UTF-8 码点边界内截断到字节上限。
+ */
 NodeResult<TextBatch> Run(const Inputs& inputs, const Params& state) {
   const auto* primary_items = inputs.primary;
   const auto* context_items = inputs.context;

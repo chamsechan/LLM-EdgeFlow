@@ -97,7 +97,9 @@ class OperatorValueTypeRegistry {
   const OperatorValueTypeBinding* GetBindingBySuffix(
       const std::string& suffix) const;
 
-  // 准备好的计划持有独立快照，即使 GlobalInit 尚未冻结注册表也不受影响。
+  /**
+   * @brief 准备好的计划持有独立快照，即使 GlobalInit 尚未冻结注册表也不受影响。
+   */
   std::optional<OperatorValueTypeBinding> CopyBindingBySuffix(
       const std::string& suffix) const;
   std::optional<OperatorValueTypeBinding> CopyOutputBinding(

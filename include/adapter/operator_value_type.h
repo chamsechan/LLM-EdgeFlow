@@ -102,7 +102,9 @@ struct OwnedExternalBlock {
   OwnedExternalBlock(const OwnedExternalBlock&) = delete;
   OwnedExternalBlock& operator=(const OwnedExternalBlock&) = delete;
 
-  // 在 unique_ptr 仍负责失败回收时登记每次分配。
+  /**
+   * @brief 在 unique_ptr 仍负责失败回收时登记每次分配。
+   */
   template <typename T>
   T* Own(std::unique_ptr<T> value) {
     T* raw = value.get();
@@ -151,9 +153,11 @@ using NormalizeOutputParametersFn = std::function<bool(
     std::shared_ptr<const OutputAllocationParameters>* normalized,
     std::string* error)>;
 
-// 只解析本结构的参数，由 Converter Audit 每个注册归一化一次并缓存。Parser
-// 签名为 bool(const std::string&, T*, std::string*)。T 为普通 struct，
-// 此后由框架负责不可变所有权和受检访问。
+/**
+ * @brief 只解析本结构的参数，由 Converter Audit
+ * 每个注册归一化一次并缓存。Parser 签名为 bool(const std::string&, T*,
+ * std::string*)。T 为普通 struct，此后由框架负责不可变所有权和受检访问。
+ */
 template <typename T, typename Parser>
 NormalizeOutputParametersFn MakeOutputParameterParser(Parser parse) {
   return [parse = std::move(parse)](
@@ -201,7 +205,9 @@ struct OperatorValueTypeBinding {
   NormalizeOutputParametersFn normalize_parameters;
 };
 
-// 宿主结构名取自 DECLARE_EXTERNAL_TYPE_TRAITS，登记处不再重复书写。
+/**
+ * @brief 宿主结构名取自 DECLARE_EXTERNAL_TYPE_TRAITS，登记处不再重复书写。
+ */
 template <typename T>
 constexpr const char* HostTypeName() {
   static_assert(ExternalTypeTraits<T>::TypeName()[0] != '\0',
@@ -225,7 +231,9 @@ void SetServiceTypeMember(OperatorValueTypeBinding* binding,
   }
 }
 
-// 将具体平台载体绑定到一种中性 Converter 值类型。
+/**
+ * @brief 将具体平台载体绑定到一种中性 Converter 值类型。
+ */
 template <typename Host, typename Value, typename Read>
 void SetInputValue(OperatorValueTypeBinding* binding, Read read) {
   static_assert(std::is_same_v<std::invoke_result_t<Read, const Host&>, Value>);
@@ -245,7 +253,9 @@ void SetOutputValue(OperatorValueTypeBinding* binding, Write write) {
   };
 }
 
-// 空指针诊断和类型擦除都在 binding 内完成，validate 只接收已转换的 T。
+/**
+ * @brief 空指针诊断和类型擦除都在 binding 内完成，validate 只接收已转换的 T。
+ */
 template <typename T, typename Validate>
 OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
                                                Validate validate) {
@@ -265,8 +275,11 @@ OperatorValueTypeBinding MakeTypedInputBinding(const char* suffix,
   return binding;
 }
 
-// 供源码扩展注册，须在 Operator Init 之前全部完成。具名分配器沿用已注册的
-// 外层类型，并可自定义嵌套布局、参数归一化、字节计数和清理。
+/**
+ * @brief 供源码扩展注册，须在 Operator Init
+ * 之前全部完成。具名分配器沿用已注册的
+ * 外层类型，并可自定义嵌套布局、参数归一化、字节计数和清理。
+ */
 bool RegisterOperatorValueType(const OperatorValueTypeBinding& binding);
 bool RegisterOperatorOutputAllocator(const std::string& name,
                                      const OperatorValueTypeBinding& binding);

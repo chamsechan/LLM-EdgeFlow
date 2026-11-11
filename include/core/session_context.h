@@ -57,6 +57,10 @@ struct ModelRegistration {
  */
 class ModelManager {
  public:
+  /**
+   * @brief 校验名称唯一性和模型身份后，原子地注册整批模型。
+   * 冲突或无效声明返回 false；校验失败或准备阶段抛异常时，已有注册保持不变。
+   */
   bool RegisterBatch(const std::vector<ModelRegistration>& models) {
     if (models.empty()) return true;
 
@@ -181,6 +185,11 @@ class SessionContext {
     return std::static_pointer_cast<T>(it->second.value);
   }
 
+  /**
+   * @brief 获取会话共享资源；缺失时让同 key 的等待者共享本次工厂调用的结果。
+   * 仅缓存非空成功结果，异常或空结果允许后续调用重试；同名类型冲突抛异常。
+   * 工厂在该 key 的锁内执行，不得递归创建同 key 或形成跨 key 的循环依赖。
+   */
   template <typename T, typename FactoryFunc>
   std::shared_ptr<T> GetOrCreateResource(const SessionResourceKey<T>& key,
                                          FactoryFunc&& factory) {

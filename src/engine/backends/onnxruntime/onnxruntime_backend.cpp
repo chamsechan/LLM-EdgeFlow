@@ -412,6 +412,11 @@ class OnnxTensorGraphSession : public ITensorGraphSession {
     return outputs_;
   }
 
+  /**
+   * @brief 校验各输入的共同批大小后，同步借用其缓冲区执行 ONNX 图。
+   * 输出经过元数据校验后复制到框架持有的 HostTensor，避免依赖厂商结果寿命。
+   * 任一输出无效或执行失败时清空整个 outputs。
+   */
   int Run(const TensorMap& inputs, TensorMap* outputs,
           std::string* diagnostic = nullptr) noexcept override {
     try {

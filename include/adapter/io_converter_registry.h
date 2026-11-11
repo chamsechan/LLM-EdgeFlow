@@ -17,7 +17,9 @@ class RegistryTestAccess;
 
 struct OperatorValueTypeBinding;
 
-// 尺寸字段沿用平台硬上限，供校验和工具使用。
+/**
+ * @brief 尺寸字段沿用平台硬上限，供校验和工具使用。
+ */
 std::vector<ConfigFieldDefinition> OutputConverterParameterFields(
     const OutputConverterDefinition& definition,
     const OperatorValueTypeBinding* allocator = nullptr);
@@ -40,6 +42,10 @@ class IoConverterRegistry {
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;
 
+  /**
+   * @brief 核对 Converter 与宿主类型、服务号、逻辑端口及输出分配器的注册契约。
+   * 输出布局参数按注册项归一化并缓存，供后续部署准备复用；发现问题时汇总诊断。
+   */
   bool Audit(std::vector<std::string>* out_errors = nullptr) const;
   std::shared_ptr<const OutputAllocationParameters> OutputParameters(
       const std::string& type, const std::string& name) const;
