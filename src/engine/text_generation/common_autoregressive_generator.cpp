@@ -48,6 +48,11 @@ void ApplyRepetitionPenalty(const std::vector<int32_t>& history, float penalty,
   }
 }
 
+/**
+ * @brief 对历史中出现过的 token 应用一次重复惩罚，再选择下一个 token。
+ * 低温时使用贪心选择，其余情况按温度、top-k 和 top-p 截断后抽样。
+ * 非有限 logits 或无效概率质量返回 false，不提交 token。
+ */
 bool SampleToken(const std::vector<float>& source_logits,
                  const std::vector<int32_t>& history,
                  const GenerateOptions& options, std::mt19937_64* rng,

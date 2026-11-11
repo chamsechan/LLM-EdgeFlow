@@ -136,7 +136,9 @@ class KiteError final : public std::runtime_error {
   int code_;
 };
 
-// 厂商调用返回非成功状态。
+/**
+ * @brief 厂商调用返回非成功状态。
+ */
 void CheckKiteStatus(int status, const char* operation) {
   if (status != KLLM_OK) {
     throw KiteError(error::kInferenceFailed,

@@ -33,17 +33,23 @@ enum class OperatorFailureCategory {
   kUnknown,
 };
 
-// 失败阶段的固定名称，不含请求内容，可用于日志。
+/**
+ * @brief 失败阶段的固定名称，不含请求内容，可用于日志。
+ */
 const char* OperatorFailureStageName(OperatorFailureStage stage) noexcept;
 
 OperatorFailureStage ControlFailureToOperatorStage(
     ControlFailureStage stage) noexcept;
 
-// 先判定成功码，再按失败阶段分类；未声明的内部码按所在阶段兜底。
+/**
+ * @brief 先判定成功码，再按失败阶段分类；未声明的内部码按所在阶段兜底。
+ */
 OperatorFailureCategory ClassifyOperatorFailure(OperatorFailureStage stage,
                                                 int internal_code) noexcept;
 
-// 调用方可修正的拒绝记 Warning；资源与构建失败及其他类别记 Error。
+/**
+ * @brief 调用方可修正的拒绝记 Warning；资源与构建失败及其他类别记 Error。
+ */
 bool IsRejectedOperatorRequest(OperatorFailureCategory category,
                                int internal_code) noexcept;
 

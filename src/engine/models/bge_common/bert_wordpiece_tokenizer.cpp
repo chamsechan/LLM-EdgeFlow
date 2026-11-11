@@ -55,7 +55,9 @@ bool IsCJK(uint32_t cp) noexcept {
          (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x2F800 && cp <= 0x2FA1F);
 }
 
-// 编码 Unicode code point 到 UTF-8
+/**
+ * @brief 编码 Unicode code point 到 UTF-8
+ */
 void EncodeUtf8CodePoint(uint32_t cp, std::string* out) {
   if (cp < 0x80) {
     out->push_back(static_cast<char>(cp));

@@ -90,8 +90,11 @@ struct GeneratedTokenEmbeddings {
 
 class IGeneratedTokenEmbeddingSession : public IBackendSession {
  public:
-  // 贪心生成，不隐式套用 chat 模板。max_tokens 取 1..64。失败时清空输出。
-  // 立即遇到 EOS 时输出为空也合法，由消费方 Model 决定其是否为可用特征。
+  /**
+   * @brief 贪心生成，不隐式套用 chat 模板。max_tokens
+   * 取 1..64。失败时清空输出。立即遇到 EOS 时输出为空也合法，由消费方 Model
+   * 决定其是否为可用特征。
+   */
   virtual int GenerateEmbeddings(
       const std::string& formatted_prompt, bool add_bos, int max_tokens,
       GeneratedTokenEmbeddings* output,

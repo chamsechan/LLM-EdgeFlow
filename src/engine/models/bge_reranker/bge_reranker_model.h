@@ -43,6 +43,11 @@ class BgeRerankerModel final
             std::string* diagnostic = nullptr) noexcept override;
 
  private:
+  /**
+   * @brief 将切片中的查询与候选编码成 BERT 句对，补齐后执行张量推理。
+   * 每个执行项必须得到一个有限分数，并按配置保留 logit 或应用 sigmoid。
+   * 输出分数包含填充项，由 FixedBatchExecutor 去填充并恢复来源编号。
+   */
   int RawScoreSlice(const QueryCandidatesBatch& all_inputs,
                     const BatchSlice& slice, std::vector<float>* batch_scores,
                     std::string* diagnostic) noexcept;

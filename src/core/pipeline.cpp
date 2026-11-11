@@ -26,6 +26,10 @@ struct RuntimeAssembly {
   std::unique_ptr<ThreadPool> thread_pool;
 };
 
+/**
+ * @brief 按计划加载模型并暂存注册信息，全部创建成功后一次性提交到 Session。
+ * 仅在整批创建并注册成功后返回 true，避免向模型池发布不完整的本批资源。
+ */
 bool MaterializeModels(const ValidatedPipelinePlan& plan,
                        SessionContext* session,
                        PipelineDiagnostic* diagnostic) {
@@ -99,6 +103,11 @@ void ConfigureExecutor(const ParsedPipelineConfig& config,
   ALG_LOG_INFO("[Pipeline] Sequential Execution Mode active\n");
 }
 
+/**
+ * @brief 按已验证的层次创建并初始化
+ * Node，将所有权和调度指针保存在暂存运行时中。初始化借用其中的计划和
+ * Session；失败时由暂存运行时统一释放已创建的资源。
+ */
 bool MaterializeNodes(RuntimeAssembly* assembly,
                       PipelineDiagnostic* diagnostic) {
   const auto& plan = *assembly->plan;

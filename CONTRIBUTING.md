@@ -151,6 +151,10 @@ Converter, Session, Catalog, Blackboard) as written. User-visible text such as l
 error strings and CLI help, including a module docstring passed to `argparse`, follows its own
 output language and is not a comment.
 
+- Use Doxygen `/** ... */` for function declaration and definition comments, with
+  `@brief` and meaningful `@param` / `@return` descriptions where needed. Use `//` for
+  implementation comments inside functions. Do not add comments to self-explanatory
+  simple functions solely to satisfy this format.
 - State the current constraint and its reason. Leave development history, review or ticket
   numbers, "new/old version" wording and pending decisions to Git, PRs and issues.
 - Describe guarantees precisely; avoid promotional or absolute wording the code cannot prove.

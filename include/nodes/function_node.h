@@ -345,8 +345,10 @@ inline InputBindingHolder<InputsT> Optional(std::string name,
           std::move(name), member_ptr, false, flow));
 }
 
-// 可选连接：请求中缺失的值由算法处理
-// （例如模板缺失变量策略或按条件使用的上下文）。
+/**
+ * @brief 可选连接：请求中缺失的值由算法处理
+ * （例如模板缺失变量策略或按条件使用的上下文）。
+ */
 template <typename InputsT, typename BatchT>
 inline InputBindingHolder<InputsT> OptionalValue(
     std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
@@ -972,6 +974,11 @@ class NodeSpec {
     return fields;
   }
 
+  /**
+   * @brief 将 typed Spec 汇总为注册与 Validator 使用的 NodeDefinition。
+   * 端口、模型依赖、参数及 Control schema 均来自同一份声明，
+   * 配置校验闭包持有参数规格副本，不依赖当前 NodeSpec 的生命周期。
+   */
   NodeDefinition BuildDefinition(std::string node_type) const {
     NodeDefinition def;
     def.node_type = std::move(node_type);
@@ -1019,7 +1026,9 @@ class NodeSpec {
   bool parallel_safe_ = false;
 };
 
-// Parameters 与 ModelsOf 可省略；省略的部分也不出现在 Run 的参数中。
+/**
+ * @brief Parameters 与 ModelsOf 可省略；省略的部分也不出现在 Run 的参数中。
+ */
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
 inline auto MakeNodeSpec(InputsOf<InputsT> inputs,
@@ -1077,6 +1086,12 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
       : NodeBase(std::move(node_name)), spec_(std::move(spec)) {}
 
  protected:
+  /**
+   * @brief 根据已验证计划绑定端口和会话资源，将规范化配置构造成 typed
+   * 参数并绑定模型。
+   * 参数准备和模型选项检查通过后，建立运行时使用的普通参数或受控配置快照。
+   * 任一准备步骤失败时报告初始化诊断，由调用方放弃该 Node 的构建。
+   */
   bool InitNode(const NodeInitContext& init_ctx, const nlohmann::json& config,
                 SessionContext& session_ctx) override {
     if (!spec_.Inputs().BindPorts(init_ctx)) {
@@ -1128,6 +1143,11 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     return NodeControlResult::Unsupported();
   }
 
+  /**
+   * @brief 从已绑定端口组装请求输入，并在本次 Run 期间持有一致的配置快照。
+   * 算法成功且输出通过来源契约检查后，发布计划中已连接的输出。
+   * 业务失败或输出检查失败时写入请求诊断并返回对应错误码。
+   */
   int ProcessNode(AlgContext& req_ctx) override {
     if constexpr (SpecType::kRunSignatureValid) {
       InputsT inputs{};

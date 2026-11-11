@@ -8,6 +8,11 @@
 
 namespace llm_edgeflow {
 
+/**
+ * @brief 逐条转换 payload，并保留输入顺序及每条数据的来源编号。
+ * 普通回调使本函数返回批次；回调返回 NodeResult 时，本函数也返回 NodeResult，
+ * 任一条目失败即终止，并在缺少批次诊断时补上失败条目的来源键。
+ */
 template <typename InT, typename MapFn>
 auto MapPayloads(const std::vector<TraceableItem<InT>>& input, MapFn&& fn) {
   using RawResult = decltype(fn(std::declval<const InT&>()));

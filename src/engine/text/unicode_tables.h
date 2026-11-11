@@ -33,16 +33,22 @@ struct UnicodeSections {
 // 可被多个线程同时调用。
 class UnicodeTables final {
  public:
-  // 校验并绑定各表。校验失败返回 false，*reason 指向静态字符串。
-  // 不需要的表必须为空，需要的表必须非空：
-  // need_properties 对应 Flags，need_nfc 对应 NormalizeNfc。
+  /**
+   * @brief 校验并绑定各表。校验失败返回 false，*reason 指向静态字符串。
+   * 不需要的表必须为空，需要的表必须非空：
+   * need_properties 对应 Flags，need_nfc 对应 NormalizeNfc。
+   */
   bool Bind(const UnicodeSections& sections, bool need_properties,
             bool need_nfc, const char** reason) noexcept;
 
-  // 返回码点的类别位；未登记的码点返回 0。
+  /**
+   * @brief 返回码点的类别位；未登记的码点返回 0。
+   */
   uint32_t Flags(uint32_t code_point) const noexcept;
 
-  // 对有效 UTF-8 文本做 NFC 规范化，输出码点序列。
+  /**
+   * @brief 对有效 UTF-8 文本做 NFC 规范化，输出码点序列。
+   */
   void NormalizeNfc(std::string_view text,
                     std::vector<uint32_t>* code_points) const;
 

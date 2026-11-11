@@ -9,7 +9,9 @@ namespace llm_edgeflow {
 namespace {
 using NamedIo = llm_edgeflow::operator_api::NamedIo;
 
-// prefix 由宿主生成，Runtime 只按 type 路由；配置保证每方向 type 唯一。
+/**
+ * @brief prefix 由宿主生成，Runtime 只按 type 路由；配置保证每方向 type 唯一。
+ */
 bool FindSlotKey(const NamedIo& row, const std::string& type, size_t frame,
                  std::string* found, std::string* error) {
   found->clear();

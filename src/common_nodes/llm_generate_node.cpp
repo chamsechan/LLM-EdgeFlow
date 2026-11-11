@@ -47,6 +47,11 @@ Parameters<Endpoint> EndpointParameters() {
   return params;
 }
 
+/**
+ * @brief 依次渲染各端点提示词并调用生成模型，将答案按端点名汇入每条输入的文档。
+ * 单端点的 text 输出保留原始答案，多端点的 text 输出为汇总后的 JSON。
+ * 任一端点调用失败时返回失败，不返回已完成端点的部分结果。
+ */
 NodeResult<Outputs> Run(const Inputs& inputs, const Params& params,
                         const Models& models) {
   Outputs output;

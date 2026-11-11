@@ -43,8 +43,10 @@ struct ConfigFieldDefinition {
   ConfigFieldDefinition() = default;
 };
 
-// 沿声明的对象字段和容器元素解析校验路径。
-// 查找前先按 JSON Pointer 规则解码含 '/' 或 '~' 的映射键。
+/**
+ * @brief 沿声明的对象字段和容器元素解析校验路径。
+ * 查找前先按 JSON Pointer 规则解码含 '/' 或 '~' 的映射键。
+ */
 inline const ConfigFieldDefinition* FindConfigField(
     const std::vector<ConfigFieldDefinition>& fields,
     nlohmann::json::json_pointer path) {

@@ -12,8 +12,10 @@ std::string ReadString(const MockString* value) {
                                       : std::string(value->data, value->length);
 }
 
-// 文本 envelope 不带 service_type，因此不声明业务映射；业务由 Pipeline
-// 输入 name 区分。
+/**
+ * @brief 文本 envelope 不带 service_type，因此不声明业务映射；业务由 Pipeline
+ * 输入 name 区分。
+ */
 OperatorValueTypeBinding MakeTextInputBinding(const char* suffix) {
   auto binding = MakeTypedInputBinding<MockInput>(
       suffix,

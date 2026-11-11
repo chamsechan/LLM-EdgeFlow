@@ -40,6 +40,11 @@ std::string ConstructSessionCacheKey(const std::string& model_name,
   return key;
 }
 
+/**
+ * @brief 将文本批次转换为保留来源编号的向量；会话级输入可复用会话缓存。
+ * 缓存键包含模型名、条目顺序、来源编号及完整文本，成功后返回缓存值的副本。
+ * 缓存未命中时通过共享创建机制执行推理，并传递模型失败信息。
+ */
 NodeResult<EmbeddingBatch> Run(const Inputs& inputs, const Params& params,
                                const Models& models,
                                const SessionResources& resources) {

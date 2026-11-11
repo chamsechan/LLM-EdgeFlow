@@ -16,6 +16,10 @@ namespace llm_edgeflow {
 
 namespace {
 
+/**
+ * @brief 将必需配置文件的相对路径解析为根目录内现存的普通文件。
+ * 同时检查规范化路径与符号链接目标，拒绝绝对路径、盘符及越界路径。
+ */
 int ResolveRequiredFileUnderRoot(const std::filesystem::path& canonical_root,
                                  const std::string& relative_value,
                                  const char* field_name,

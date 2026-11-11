@@ -13,7 +13,9 @@ bool IsScalar(uint32_t code_point) noexcept {
          !(code_point >= 0xD800 && code_point <= 0xDFFF);
 }
 
-// 在 stride 个 uint32 为一行、首列为键的有序表中查找键。
+/**
+ * @brief 在 stride 个 uint32 为一行、首列为键的有序表中查找键。
+ */
 const uint32_t* FindRow(const uint32_t* table, size_t rows, size_t stride,
                         uint32_t key) noexcept {
   size_t low = 0;

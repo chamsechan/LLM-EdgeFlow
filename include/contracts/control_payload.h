@@ -12,9 +12,11 @@
 
 namespace llm_edgeflow {
 
-// 支持的校验关键字：type、enum、required、properties、minProperties、
-// additionalProperties、同构 items、not、minimum 和 maximum。说明性注解不影响
-// 校验，也不填充默认值。注册时和本函数都会拒绝不支持或格式错误的声明。
+/**
+ * @brief 支持的校验关键字：type、enum、required、properties、minProperties、
+ * additionalProperties、同构 items、not、minimum 和 maximum。说明性注解不影响
+ * 校验，也不填充默认值。注册时和本函数都会拒绝不支持或格式错误的声明。
+ */
 inline bool ValidateControlSchema(const nlohmann::json& schema,
                                   std::string* error = nullptr) {
   if (error) error->clear();
@@ -93,6 +95,11 @@ inline bool ValidateControlSchema(const nlohmann::json& schema,
 
 namespace control_payload_detail {
 
+/**
+ * @brief 依据已通过声明校验的 schema
+ * 递归检查载荷，返回首个违反约束的位置和原因。
+ * 不修改载荷或填充默认值；对象属性和数组元素的诊断逐层附加上下文。
+ */
 inline bool ValidateValue(const nlohmann::json& payload,
                           const nlohmann::json& schema, std::string* err_msg) {
   const auto fail = [&](const std::string& message) {
@@ -187,7 +194,9 @@ inline bool ValidateValue(const nlohmann::json& payload,
 
 }  // namespace control_payload_detail
 
-// 仅做结构校验；Node 仍需校验领域语义。
+/**
+ * @brief 仅做结构校验；Node 仍需校验领域语义。
+ */
 inline bool ValidateControlPayload(const nlohmann::json& payload,
                                    const nlohmann::json& schema,
                                    std::string* error = nullptr) {
@@ -195,8 +204,10 @@ inline bool ValidateControlPayload(const nlohmann::json& payload,
   return control_payload_detail::ValidateValue(payload, schema, error);
 }
 
-// 持有解析后的 payload；调用返回后不再引用借用的平台缓冲区。
-// 仅在解析和结构校验都成功后才替换输出。
+/**
+ * @brief 持有解析后的 payload；调用返回后不再引用借用的平台缓冲区。
+ * 仅在解析和结构校验都成功后才替换输出。
+ */
 inline bool ParseControlPayload(const std::string& text,
                                 const nlohmann::json& schema,
                                 nlohmann::json* payload,

@@ -36,6 +36,10 @@ class NodeRegistry {
     return instance;
   }
 
+  /**
+   * @brief 校验并保存创建器及 Definition 副本，拒绝类型重复和命令归属冲突。
+   * 失败返回 false 并记录冲突，后续能力校验据此拒绝不完整注册集。
+   */
   bool Register(const std::string& node_type, CreatorFunc creator,
                 const NodeDefinition* definition) noexcept;
 
@@ -64,6 +68,10 @@ class NodeRegistry {
     }
   }
 
+  /**
+   * @brief 取得稳定的注册条目后在锁外调用创建器，允许创建过程再次查询注册表。
+   * 未注册时返回空指针；创建器异常交由调用方处理。
+   */
   std::unique_ptr<INode> Create(const std::string& node_type) const;
   bool HasConflict() const;
   std::vector<std::string> GetConflictErrors() const;

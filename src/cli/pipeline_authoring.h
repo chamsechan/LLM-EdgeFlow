@@ -30,7 +30,11 @@ struct AuthoringResult {
 
 class PipelineAuthoring {
  public:
-  // 应用单个编辑请求，包含 {pipeline, operation/operations, require_valid}。
+  /**
+   * @brief 在文档副本上应用单个或多个编辑操作，返回编辑结果与完整校验报告。
+   * 操作失败时不交付文档；require_valid 为 true 时还要求最终语义校验通过。
+   * 只修改返回的内存文档，持久化由调用方负责。
+   */
   static AuthoringResult ApplyRequest(const nlohmann::json& request);
 };
 

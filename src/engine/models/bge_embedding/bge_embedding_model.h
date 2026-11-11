@@ -30,6 +30,11 @@ class BgeEmbeddingModel final
   static constexpr InferenceConcurrency kConcurrency =
       InferenceConcurrency::kConcurrent;
 
+  /**
+   * @brief 从 TensorGraph 的固定形状和已解析参数确定编码长度与向量维度，
+   * 校验 BERT 输入和指定输出的元数据后加载词表并创建模型。
+   * 资源形状、配置或词表不匹配时返回空指针。
+   */
   static std::shared_ptr<IModel> Create(const ModelCreateContext& ctx,
                                         std::string* diagnostic);
 
@@ -44,6 +49,12 @@ class BgeEmbeddingModel final
             std::string* diagnostic = nullptr) noexcept override;
 
  private:
+  /**
+   * @brief 为一个执行切片编码文本并补齐空文本，运行 TensorGraph
+   * 后提取指定输出。三维输出按 attention mask 做 mean 池化或取
+   * CLS，二维输出直接作为向量。返回包含填充项的 execution_count
+   * 个向量；去填充和来源恢复由调用方负责。
+   */
   int RawEmbedSlice(const TextBatch& all_inputs, const BatchSlice& slice,
                     std::vector<std::vector<float>>* batch_embeddings,
                     bool normalize_flag, std::string* diagnostic) noexcept;

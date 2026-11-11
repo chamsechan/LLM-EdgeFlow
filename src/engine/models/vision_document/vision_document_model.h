@@ -15,6 +15,11 @@ class VisionDocumentModel final
       InferenceConcurrency::kConcurrent;
   static std::shared_ptr<IModel> Create(const ModelCreateContext& context,
                                         std::string* diagnostic);
+  /**
+   * @brief
+   * 将每帧图像补齐为模型输入后，以贪心生成获取文档全文；不生成检测框或置信度。
+   * 空识别文本视为失败；任一图像处理失败时清空整批输出，成功时保留来源编号。
+   */
   int Recognize(const ImageFrameBatch& images, OcrDocumentBatch* outputs,
                 std::string* diagnostic = nullptr) noexcept override;
 

@@ -20,6 +20,11 @@ struct Models {
   RerankCall reranker;
 };
 
+/**
+ * @brief 按 req_id 将候选与唯一查询配成句对，调用重排模型后逐请求保留前 top_k
+ * 项。每个请求的输出 sub_id 按排名重新编号，并保存重排前候选的 sub_id。
+ * 重复查询、候选缺少对应查询或模型调用失败都会终止本批处理。
+ */
 NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params,
                                 const Models& models) {
   const auto* queries = inputs.queries;

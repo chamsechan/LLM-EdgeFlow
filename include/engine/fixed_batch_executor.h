@@ -32,9 +32,11 @@ struct BatchSlice {
  */
 class FixedBatchExecutor {
  public:
-  // 供动态批会话逐条执行模型语义：回调只负责一个输入 -> 一个输出，来源追踪、
-  // 回滚和异常映射由 Execute 统一处理。张量模型和固定批模型仍直接使用
-  // Execute，并显式准备填充后的批。
+  /**
+   * @brief 供动态批会话逐条执行模型语义：回调只负责一个输入 ->
+   * 一个输出，来源追踪、 回滚和异常映射由 Execute
+   * 统一处理。张量模型和固定批模型仍直接使用 Execute，并显式准备填充后的批。
+   */
   template <typename TIn, typename TOut, typename RunItem>
   static int ExecuteItems(const std::vector<TraceableItem<TIn>>& inputs,
                           const BatchPolicy& policy, RunItem&& run_item,
@@ -64,6 +66,9 @@ class FixedBatchExecutor {
 
   /**
    * @brief 基于 BatchSlice 和 BatchPolicy 的中性批处理入口
+   * 按 Session 的批策略切片，调用 run_batch 后恢复输入的来源编号。
+   * run_batch 须自行准备填充项，并写出 execution_count 个结果；
+   * 本入口只保留 valid_count 个有效结果，任一切片失败时清空整批输出。
    */
   template <typename TIn, typename TOut, typename RunBatch>
   static int Execute(const std::vector<TraceableItem<TIn>>& inputs,

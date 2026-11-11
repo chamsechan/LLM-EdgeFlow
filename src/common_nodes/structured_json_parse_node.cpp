@@ -56,6 +56,11 @@ struct Inputs {
   const TextBatch* text = nullptr;
 };
 
+/**
+ * @brief 优先解析完整输入；允许提取时，再尝试 JSON 代码围栏或首个完整外层容器。
+ * 成功写出规范化 JSON、结构化值和解析状态；失败写入诊断。
+ * 围栏或外层容器损坏时直接失败，避免把内部片段误当成完整结果。
+ */
 bool ParseOrExtractJson(const Params& options, const std::string& input,
                         std::string* out_json, nlohmann::json* out_structured,
                         JsonParseStatus* out_status, std::string* out_diag) {
@@ -133,6 +138,11 @@ bool ParseOrExtractJson(const Params& options, const std::string& input,
   return false;
 }
 
+/**
+ * @brief 将单条文本解析为结构化文档，并检查配置声明的顶层字段。
+ * 解析或字段检查失败时，按策略返回 Node 失败、无效诊断文档，
+ * 或标记为已应用回退的有效备用文档。
+ */
 NodeResult<JsonDocumentItem> ParseDocument(const Params& options,
                                            const std::string& text) {
   std::string parsed_json_str;

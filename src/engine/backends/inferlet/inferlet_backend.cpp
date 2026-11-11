@@ -134,7 +134,9 @@ class InferletError final : public std::runtime_error {
   int code_;
 };
 
-// 厂商调用返回非成功状态。
+/**
+ * @brief 厂商调用返回非成功状态。
+ */
 void CheckInferletStatus(int status, const char* operation) {
   if (status != INFERLET_OK) {
     throw InferletError(error::kInferenceFailed,
@@ -229,6 +231,12 @@ class InferletSession : public Interface {
     return result;
   }
 
+  /**
+   * @brief 执行厂商生成任务，将返回的 token
+   * 解码为文本并截去首个停止词及之后内容。调用方须持有 Session 锁并预先清空
+   * output；本函数不负责错误码转换。厂商失败或输出结构异常通过 InferletError
+   * 交给会话入口处理。
+   */
   void RunTask(void* input, const GenerateOptions& options,
                std::string* output) {
     auto result = ExecuteTask(input, options);
@@ -338,6 +346,11 @@ class InferletGeneratedTokenEmbeddingSession final
  public:
   using InferletEmbeddingSessionBase::InferletEmbeddingSessionBase;
 
+  /**
+   * @brief 串行执行贪心生成并请求 token 隐藏状态，校验 token 与向量逐行对应。
+   * 在厂商任务结果释放前复制所有向量，完整校验后提交到调用方输出。
+   * 空生成可成功返回空结果，是否可形成业务向量由 Model 判断。
+   */
   int GenerateEmbeddings(const std::string& prompt, bool add_bos,
                          int max_tokens, GeneratedTokenEmbeddings* output,
                          std::string* diagnostic) noexcept override {

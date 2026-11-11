@@ -120,7 +120,9 @@ struct NativeTypeTraits<uint8_t> {
  */
 class HostTensorBuffer : public ITensorBuffer {
  public:
-  // 失败时保留请求的大小，避免把分配失败误认为合法的零长度缓冲区。
+  /**
+   * @brief 失败时保留请求的大小，避免把分配失败误认为合法的零长度缓冲区。
+   */
   explicit HostTensorBuffer(size_t byte_size) : size_(byte_size) {
     if (byte_size > 0) {
       size_t alignment = 64;
@@ -202,7 +204,9 @@ inline bool ComputeTensorByteSize(const TensorDesc& desc, size_t element_size,
   }
 }
 
-// 入口已检查 buffer；先检查元素类型，再调用对应的只读或可写访问函数。
+/**
+ * @brief 入口已检查 buffer；先检查元素类型，再调用对应的只读或可写访问函数。
+ */
 template <typename T, typename Accessor>
 inline auto CheckedTensorData(const Tensor& tensor, Accessor accessor,
                               const char* null_data_message,

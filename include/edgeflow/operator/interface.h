@@ -56,6 +56,8 @@ EDGEFLOW_API OperatorFunc Get_LLM_EDGEFLOW_OperatorTable() noexcept;
 
 /**
  * @brief 获取当前线程最近一次 Operator 门面结构化诊断错误信息
+ * 返回值借用当前线程的诊断缓冲区，调用方应立即复制；
+ * 后续诊断写入或线程退出后，不得继续使用此前取得的指针。
  */
 EDGEFLOW_API const char* GetOperatorLastError() noexcept;
 

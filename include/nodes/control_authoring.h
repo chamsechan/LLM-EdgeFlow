@@ -66,6 +66,11 @@ class FieldControlCommand {
                                     GenerateSchema(params));
   }
 
+  /**
+   * @brief 解析受控字段更新，并在当前配置副本上整体替换本次提供的字段。
+   * 替换后重新执行参数准备、语义和连线检查，全部成功才发布新快照。
+   * 未提供的字段保留原值，更新失败时继续使用原快照。
+   */
   template <typename ParamsT>
   NodeControlResult Execute(const Parameters<ParamsT>& params,
                             const std::string& json_param,

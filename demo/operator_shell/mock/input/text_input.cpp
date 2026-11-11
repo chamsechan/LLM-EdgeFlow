@@ -12,7 +12,9 @@
 namespace alg_demo {
 namespace {
 
-// 宿主载体相同，回退样例仍按业务区分。
+/**
+ * @brief 宿主载体相同，回退样例仍按业务区分。
+ */
 std::vector<std::string> FallbackSamples(const std::string& name) {
   if (name == "keyword_match")
     return {"请帮我联系一下VIP专员，我有一笔大客户加急订单需要优先处理。",

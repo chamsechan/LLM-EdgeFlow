@@ -23,7 +23,10 @@ struct Params {
   bool uses_context = false;
 };
 
-// 字段已校验并填充默认值。此处只把模板转换为片段；请求值从不进入配置解析。
+/**
+ * @brief
+ * 字段已校验并填充默认值。此处只把模板转换为片段；请求值从不进入配置解析。
+ */
 bool PreparePrompt(Params* params, std::string* error) {
   auto reject = [&](const std::string& message) {
     if (error) *error = message;
@@ -47,7 +50,9 @@ bool PreparePrompt(Params* params, std::string* error) {
   return true;
 }
 
-// 纯算法：移除 LLM 响应中的 Markdown 代码围栏。
+/**
+ * @brief 纯算法：移除 LLM 响应中的 Markdown 代码围栏。
+ */
 std::string StripMarkdownCodeFence(std::string_view text) {
   size_t start = text.find_first_not_of(" \t\r\n");
   if (start == std::string_view::npos) return "";
@@ -80,6 +85,11 @@ struct Models {
   LlmCall generator;
 };
 
+/**
+ * @brief 为每条输入构造提示词；模板引用 context 时，按 req_id
+ * 汇集该请求的上下文。批量生成后按配置移除答案的外层 Markdown
+ * 围栏，保留输入的来源编号。模型调用失败时直接传递其失败信息。
+ */
 NodeResult<TextBatch> Run(const Inputs& inputs, const Params& params,
                           const Models& models) {
   if (inputs.input->empty()) return NodeResult<TextBatch>::Success({});

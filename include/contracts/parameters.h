@@ -787,6 +787,11 @@ class Parameters {
     return binding->Assign(normalized, out, err);
   }
 
+  /**
+   * @brief 依次执行并入参数组的校验、Prepare、跨字段语义检查和已知连线检查。
+   * Prepare 可以更新派生状态，因此调用方应传入尚未发布的候选配置。
+   * 回调拒绝或抛出异常时返回 false，并尽力写入诊断。
+   */
   bool ValidateState(ParamsT* state, const BindingFacts& facts,
                      std::string* err) const noexcept {
     try {
@@ -869,6 +874,11 @@ class Parameters {
     }
   }
 
+  /**
+   * @brief 将已完成结构校验的配置赋入 typed 参数，再执行派生状态与语义检查。
+   * 成功返回独立参数对象；失败返回 nullopt，不暴露部分构造的状态。
+   * 字段赋值失败时提供相对 JSON Pointer，跨字段校验失败时路径保持为空。
+   */
   std::optional<ParamsT> ParseNormalized(
       const nlohmann::json& normalized, const BindingFacts& facts,
       std::string* error = nullptr,

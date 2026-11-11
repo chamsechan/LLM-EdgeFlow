@@ -67,7 +67,9 @@ class ItemJoinView {
                std::vector<RowType> rows)
       : left_(&left), right_(&right), rows_(std::move(rows)) {}
 
-  // 禁止从临时/右值批次构造（含非 const 和 const）
+  /**
+   * @brief 禁止从临时/右值批次构造（含非 const 和 const）
+   */
   ItemJoinView(std::vector<TraceableItem<LeftPayload>>&&,
                const std::vector<TraceableItem<RightPayload>>&,
                std::vector<RowType>) = delete;
@@ -116,6 +118,11 @@ class ItemJoinView {
   std::vector<RowType> rows_;
 };
 
+/**
+ * @brief 按完整来源键关联两批条目，结果保持左批次顺序并借用两侧数据。
+ * 两侧重复键及右侧未知键均失败；kExact 要求全部匹配，kLeft 允许右侧缺项。
+ * 使用结果期间，两侧批次须保持存活且不得使所借用条目的地址失效。
+ */
 template <typename LeftPayload, typename RightPayload>
 NodeResult<ItemJoinView<LeftPayload, RightPayload>> JoinByItem(
     const std::vector<TraceableItem<LeftPayload>>& left,
@@ -365,6 +372,11 @@ class RequestGroupView {
   std::unordered_map<uint32_t, size_t> req_id_to_group_index_;
 };
 
+/**
+ * @brief 按 req_id 将成员归入 anchor 定义的请求组，分组顺序取 anchor
+ * 首次出现顺序。拒绝两侧各自的重复来源键，以及不属于任何 anchor 请求的成员。
+ * 返回视图借用原批次，调用方须在使用期间维持其数据和地址有效。
+ */
 template <typename AnchorPayload, typename MemberPayload>
 NodeResult<RequestGroupView<AnchorPayload, MemberPayload>> GroupByRequest(
     const std::vector<TraceableItem<AnchorPayload>>& anchor,
@@ -552,6 +564,11 @@ class Selection {
   std::vector<size_t> selected_indices_;
 };
 
+/**
+ * @brief 按原顺序记录满足谓词的条目索引，返回借用 anchor 的选择视图。
+ * 谓词可返回 bool 或 NodeResult<bool>；重复来源键、回调失败或回调异常均失败。
+ * 需要自有批次时由调用方显式 Materialize，使用视图期间须保留原批次。
+ */
 template <typename Payload, typename Predicate>
 NodeResult<Selection<Payload>> SelectBatch(
     const std::vector<TraceableItem<Payload>>& anchor, Predicate&& predicate) {
@@ -627,6 +644,11 @@ template <typename Payload, typename Predicate>
 void SelectBatch(const std::vector<TraceableItem<Payload>>&&,
                  Predicate&&) = delete;
 
+/**
+ * @brief 按完整来源键将替换值回填到选择视图对应的原批次副本。
+ * 替换集合必须恰好覆盖被选条目；重复、缺失或未选中的键均失败。
+ * 仅替换 payload，原批次顺序和全部来源编号保持不变。
+ */
 template <typename Payload>
 NodeResult<std::vector<TraceableItem<Payload>>> ScatterReplace(
     const Selection<Payload>& selection,
@@ -715,6 +737,11 @@ struct SplitResultTraits {
   using OutputPayload = typename ValueType::value_type;
 };
 
+/**
+ * @brief 逐父项调用拆分函数，汇总子项及沿用父项来源键的数量结果。
+ * 子项 sub_id 从各请求的给定起点连续分配，同请求的多个父项共用编号序列。
+ * 重复输入键、回调失败或编号与计数溢出时返回失败，不返回部分拆分结果。
+ */
 template <typename InputPayload, typename SplitFn>
 auto SplitPayloadsInternal(
     const std::vector<TraceableItem<InputPayload>>& input, SplitFn&& split_one,

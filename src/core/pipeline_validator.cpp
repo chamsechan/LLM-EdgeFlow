@@ -101,8 +101,10 @@ nlohmann::json ShapeFacts(const KeyShape& shape) {
   return {{"kind", "unknown"}};
 }
 
-// IO 边界端口按请求计数："1:1" 恰为一个条目，
-// 其他声明均为归属该请求的集合。
+/**
+ * @brief IO 边界端口按请求计数："1:1" 恰为一个条目，
+ * 其他声明均为归属该请求的集合。
+ */
 KeyShape BoundaryShape(const PortContract& port, std::string origin) {
   return port.cardinality == "1:1" ? KeyShape::PerRequest()
                                    : KeyShape::Multi(std::move(origin));
@@ -211,6 +213,10 @@ bool ValidateAndNormalizeConfig(
 
 namespace {
 
+/**
+ * @brief 校验节点参数并把诊断归属到该实例。失败时仍返回已识别字段和默认值，
+ * 供后续检查继续收集问题；调用方须通过 out_valid 判断字段校验是否通过。
+ */
 nlohmann::json ValidateConfigFields(
     const std::vector<ConfigFieldDefinition>& definitions,
     const nlohmann::json& config, const std::string& path_prefix,
@@ -242,6 +248,10 @@ nlohmann::json ValidateConfigFields(
   return normalized;
 }
 
+/**
+ * @brief 对已合并数据依赖的 depends_on 做拓扑分层，向报告追加顺序和依赖诊断。
+ * 自依赖、未知或重复依赖及环均使返回值为 false；失败时报告可能含部分顺序。
+ */
 bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
                      ValidationReport* report) {
   const bool unique_dependencies = PipelineConfigStructure()
@@ -311,6 +321,12 @@ bool ResolveTopology(const std::vector<ParsedNodeConfig>& nodes,
   return !invalid_reference;
 }
 
+/**
+ * @brief 将已解析配置与能力快照、I/O
+ * 边界联合校验，推导数据依赖、端口流和模型绑定，再按 Node
+ * 与模型的并发约束细分执行层。失败时保留诊断及已推导的信息，
+ * 这些信息供工具解释问题，不能作为可执行计划使用。
+ */
 ValidatedPipelinePlan ValidateAndPlanInternal(
     ParsedPipelineConfig config, const PipelineCatalogSnapshot& catalog,
     const PipelineIoBoundary& io_boundary) {
