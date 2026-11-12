@@ -57,6 +57,12 @@ class ParameterValues {
 class ParameterSet {
  public:
   ParameterSet() : ParameterSet(Parameters<NoParameters>{}) {}
+  ParameterSet(const ParameterSet&) = default;
+  ParameterSet(ParameterSet&&) noexcept = default;
+  ParameterSet& operator=(ParameterSet&&) noexcept = default;
+  ParameterSet& operator=(const ParameterSet& other) {
+    return *this = ParameterSet(other);
+  }
 
   template <typename P>
   ParameterSet(
@@ -65,8 +71,9 @@ class ParameterSet {
     fields_ = owned->Fields();
     parse_ = [owned](const nlohmann::json& config,
                      std::shared_ptr<const ParameterValues>* values,
-                     std::string* error) {
-      auto parsed = owned->Parse(config, error);
+                     std::string* error, bool normalized) {
+      auto parsed = normalized ? owned->ParseNormalized(config, error)
+                               : owned->Parse(config, error);
       if (!parsed) return false;
       auto effective = owned->Read(*parsed);
       *values = std::shared_ptr<const ParameterValues>(
@@ -82,6 +89,20 @@ class ParameterSet {
   bool Parse(const nlohmann::json& config,
              std::shared_ptr<const ParameterValues>* values,
              std::string* error = nullptr) const noexcept {
+    return ParseImpl(config, values, error, false);
+  }
+
+  // 仅接收已通过有效 schema 校验并补齐默认值的配置；仍转换类型并执行状态校验。
+  bool ParseNormalized(const nlohmann::json& config,
+                       std::shared_ptr<const ParameterValues>* values,
+                       std::string* error = nullptr) const noexcept {
+    return ParseImpl(config, values, error, true);
+  }
+
+ private:
+  bool ParseImpl(const nlohmann::json& config,
+                 std::shared_ptr<const ParameterValues>* values,
+                 std::string* error, bool normalized) const noexcept {
     if (error) error->clear();
     if (!values) {
       SetDiagnosticNoexcept(error, "Null parameter values output");
@@ -89,7 +110,7 @@ class ParameterSet {
     }
     values->reset();
     try {
-      return parse_(config, values, error);
+      return parse_(config, values, error, normalized);
     } catch (const std::exception& exception) {
       SetDiagnosticNoexcept(error, exception.what());
     } catch (...) {
@@ -98,10 +119,10 @@ class ParameterSet {
     return false;
   }
 
- private:
   std::vector<ConfigFieldDefinition> fields_;
   std::function<bool(const nlohmann::json&,
-                     std::shared_ptr<const ParameterValues>*, std::string*)>
+                     std::shared_ptr<const ParameterValues>*, std::string*,
+                     bool)>
       parse_;
 };
 

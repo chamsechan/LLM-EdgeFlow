@@ -50,12 +50,10 @@ bool ParsePipelineConfig(const nlohmann::json& root,
   }
 
   // 拒绝根节点的未知字段
-  for (auto it = root.begin(); it != root.end(); ++it) {
-    if (!shape::AllowsProperty(structure, it.key())) {
-      SetDiag(diagnostic, error::kUnknownField, "/" + it.key(),
-              "Unknown root field: " + it.key());
-      return false;
-    }
+  if (auto field = shape::FindUnknownProperty(root, structure)) {
+    SetDiag(diagnostic, error::kUnknownField, "/" + EscapeJsonPointer(*field),
+            "Unknown root field: " + *field);
+    return false;
   }
 
   // comment：可选字符串
@@ -115,21 +113,17 @@ bool ParsePipelineConfig(const nlohmann::json& root,
           SetDiag(diagnostic, error::kFieldType, path, "Expected an object");
           return false;
         }
-        for (const auto& [key, value] : object.items()) {
-          if (!shape::AllowsProperty(declaration, key)) {
-            SetDiag(diagnostic, error::kUnknownField,
-                    path + "/" + EscapeJsonPointer(key),
-                    "Unknown field: " + key);
-            return false;
-          }
+        if (auto field = shape::FindUnknownProperty(object, declaration)) {
+          SetDiag(diagnostic, error::kUnknownField,
+                  path + "/" + EscapeJsonPointer(*field),
+                  "Unknown field: " + *field);
+          return false;
         }
-        for (const auto& key : declaration.at("required")) {
-          const auto field = key.get<std::string>();
-          if (!object.contains(field)) {
-            SetDiag(diagnostic, error::kMissingField, path + "/" + field,
-                    "Missing required field '" + field + "'");
-            return false;
-          }
+        if (auto field = shape::FindMissingProperty(object, declaration)) {
+          SetDiag(diagnostic, error::kMissingField,
+                  path + "/" + EscapeJsonPointer(*field),
+                  "Missing required field '" + *field + "'");
+          return false;
         }
         return true;
       };
@@ -217,13 +211,11 @@ bool ParsePipelineConfig(const nlohmann::json& root,
     }
 
     // 拒绝 node 内部未知字段
-    for (auto it = node_elem.begin(); it != node_elem.end(); ++it) {
-      if (!shape::AllowsProperty(node_shape, it.key())) {
-        SetDiag(diagnostic, error::kUnknownField,
-                node_path_prefix + "/" + it.key(),
-                "Unknown field in node: " + it.key());
-        return false;
-      }
+    if (auto field = shape::FindUnknownProperty(node_elem, node_shape)) {
+      SetDiag(diagnostic, error::kUnknownField,
+              node_path_prefix + "/" + EscapeJsonPointer(*field),
+              "Unknown field in node: " + *field);
+      return false;
     }
 
     ParsedNodeConfig node_cfg;

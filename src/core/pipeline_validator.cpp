@@ -422,7 +422,7 @@ ValidatedPipelinePlan ValidateAndPlanInternal(
           if (valid) {
             std::shared_ptr<const ParameterValues> values;
             std::string error;
-            if (!declaration.Parse(*normalized, &values, &error))
+            if (!declaration.ParseNormalized(*normalized, &values, &error))
               Add(&report, error::kInvalidCombination, path,
                   error.empty() ? "Invalid parameter combination" : error);
           }

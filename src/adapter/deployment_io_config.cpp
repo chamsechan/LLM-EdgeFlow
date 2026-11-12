@@ -16,8 +16,6 @@ static void SetConfigDiag(DeploymentDiagnostic* out_diag, int code,
     out_diag->code = code;
     out_diag->path = path;
     out_diag->message = message;
-
-    out_diag->pipeline_diagnostic.reset();
   }
 }
 

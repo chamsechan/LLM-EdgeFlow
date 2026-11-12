@@ -126,28 +126,39 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
   WriteConfig((config_ / "pipeline.json").string());
   ASSERT_EQ(Resolve("conf/deploy.conf", 2, &result), 0) << error_;
-  const auto outside = directory_ / "outside";
+  const auto outside = directory_ / "root_extra";
   std::filesystem::create_directory(outside);
   std::ofstream(outside / "deploy.conf") << R"({"pipe_path":"pipeline.json"})";
   std::ofstream(outside / "pipeline.json") << KeywordDeployment().dump();
   std::filesystem::create_symlink(outside / "deploy.conf",
                                   root_ / "linked.conf");
   for (const auto& file :
-       {std::string("../outside/deploy.conf"),
+       {std::string("../root_extra/deploy.conf"),
         (config_ / "deploy.conf").string(), std::string("C:deploy.conf"),
         std::string("\\\\server\\deploy.conf"),
         std::string("conf/missing.conf"), std::string("conf"),
         std::string("linked.conf")}) {
     SCOPED_TRACE(file);
     ResolvedOperatorConfig rejected;
-    EXPECT_EQ(Resolve(file, 2, &rejected), error::kDeploymentError);
+    DeploymentDiagnostic diagnostic;
+    EXPECT_EQ(Resolve(file, 2, &rejected, &diagnostic),
+              error::kDeploymentError);
     EXPECT_EQ(rejected.io_plan, nullptr);
+    if (file == "linked.conf") {
+      EXPECT_EQ(diagnostic.code, error::kDeploymentError);
+      EXPECT_EQ(diagnostic.path, "/");
+      EXPECT_NE(error_.find("symlink escapes model_path"), std::string::npos);
+    }
   }
   std::filesystem::create_symlink(outside / "pipeline.json",
                                   config_ / "linked.json");
+  const auto conf_extra = root_ / "conf_extra";
+  std::filesystem::create_directory(conf_extra);
+  std::ofstream(conf_extra / "pipeline.json") << KeywordDeployment().dump();
   for (const auto& pipe :
        {std::string("../pipeline.json"), std::string("linked.json"),
-        (outside / "pipeline.json").string(), std::string("missing.json")}) {
+        (outside / "pipeline.json").string(),
+        (conf_extra / "pipeline.json").string(), std::string("missing.json")}) {
     SCOPED_TRACE(pipe);
     WriteConfig(pipe);
     DeploymentDiagnostic diagnostic;
@@ -156,6 +167,11 @@ TEST_F(IoParametersTest,
               error::kDeploymentError);
     EXPECT_EQ(rejected.io_plan, nullptr);
     EXPECT_EQ(diagnostic.path, "/pipe_path");
+    if (pipe == (conf_extra / "pipeline.json").string()) {
+      EXPECT_EQ(diagnostic.code, error::kDeploymentError);
+      EXPECT_NE(error_.find("pipe_path escapes config directory"),
+                std::string::npos);
+    }
   }
 }
 
@@ -173,40 +189,6 @@ TEST_F(IoParametersTest,
   EXPECT_EQ(result.conf_path, config_ / "deploy.conf");
   EXPECT_EQ(result.pipeline_path, config_ / "pipeline.json");
   EXPECT_EQ(diagnostic.code, error::kOk);
-}
-
-TEST_F(IoParametersTest,
-       PathContainmentRejectsSiblingDirectoriesSharingRootPrefixes) {
-  const auto root_extra = directory_ / "root_extra";
-  std::filesystem::create_directory(root_extra);
-  std::ofstream(root_extra / "deploy.conf")
-      << Json{{"pipe_path", "pipeline.json"}}.dump();
-  std::ofstream(root_extra / "pipeline.json") << KeywordDeployment().dump();
-  std::filesystem::create_symlink(root_extra / "deploy.conf",
-                                  root_ / "linked.conf");
-
-  DeploymentDiagnostic diagnostic;
-  ResolvedOperatorConfig rejected_config;
-  EXPECT_EQ(Resolve("linked.conf", 2, &rejected_config, &diagnostic),
-            error::kDeploymentError);
-  EXPECT_EQ(rejected_config.io_plan, nullptr);
-  EXPECT_EQ(diagnostic.code, error::kDeploymentError);
-  EXPECT_EQ(diagnostic.path, "/");
-  EXPECT_NE(error_.find("symlink escapes model_path"), std::string::npos);
-
-  const auto conf_extra = root_ / "conf_extra";
-  std::filesystem::create_directory(conf_extra);
-  std::ofstream(conf_extra / "pipeline.json") << KeywordDeployment().dump();
-  WriteConfig((conf_extra / "pipeline.json").string());
-
-  ResolvedOperatorConfig rejected_pipeline;
-  EXPECT_EQ(Resolve("conf/deploy.conf", 2, &rejected_pipeline, &diagnostic),
-            error::kDeploymentError);
-  EXPECT_EQ(rejected_pipeline.io_plan, nullptr);
-  EXPECT_EQ(diagnostic.code, error::kDeploymentError);
-  EXPECT_EQ(diagnostic.path, "/pipe_path");
-  EXPECT_NE(error_.find("pipe_path escapes config directory"),
-            std::string::npos);
 }
 
 TEST_F(IoParametersTest,
@@ -231,58 +213,49 @@ TEST_F(IoParametersTest,
 TEST_F(IoParametersTest,
        ExactSelectionsAndUniqueIngressPortsFailWithOwnedDiagnosticPaths) {
   struct InvalidSelection {
-    const char* label;
-    Json document;
-    int code;
     const char* path;
+    Json value;
+    int code;
+    const char* diagnostic_path = nullptr;
   };
-  std::vector<InvalidSelection> cases;
-  auto unknown = KeywordDeployment();
-  unknown["io"]["input"][0]["name"] = "not_keyword_match";
-  cases.push_back(
-      {"unknown pair", unknown, error::kUnknownConverter, "/io/input/0"});
-  auto duplicate = KeywordDeployment();
-  duplicate["io"]["input"].push_back(duplicate["io"]["input"][0]);
-  cases.push_back({"duplicate selection", duplicate, error::kDuplicateIoEntry,
-                   "/io/input/1"});
-  auto repeated_input_type = KeywordDeployment();
-  repeated_input_type["io"]["input"] =
-      Json::array({{{"type", "entity_in"}, {"name", "entity_extract"}},
-                   {{"type", "entity_in"}, {"name", "translate"}}});
-  cases.push_back({"repeated input type", repeated_input_type,
-                   error::kDuplicateIoEntry, "/io/input/1"});
-  auto port_collision = KeywordDeployment();
-  port_collision["io"]["input"].push_back(
-      {{"type", "entity_in"}, {"name", "entity_extract"}});
-  cases.push_back({"duplicate producer", port_collision,
-                   error::kDuplicatePortProducer, "/io/input/1"});
-  auto unknown_egress = KeywordDeployment();
-  unknown_egress["io"]["output"][0]["inputs"] = {{"wrong", "rules.matches"}};
-  cases.push_back({"unknown egress", unknown_egress, error::kUnknownField,
-                   "/io/output/0/inputs/wrong"});
-  auto duplicate_output = KeywordDeployment();
-  duplicate_output["io"]["output"].push_back(
-      duplicate_output["io"]["output"][0]);
-  cases.push_back({"duplicate output", duplicate_output,
-                   error::kDuplicateIoEntry, "/io/output/1"});
-  // 宿主 key 只按 type 路由，同 type 不同 name 也是重复。
-  auto repeated_type = KeywordDeployment();
-  repeated_type["io"]["output"].push_back(
-      {{"type", "json_out"},
-       {"name", "translate"},
-       {"inputs", {{"translation", "rules.matches"}}}});
-  cases.push_back({"repeated output type", repeated_type,
-                   error::kDuplicateIoEntry, "/io/output/1"});
+  const InvalidSelection cases[] = {
+      {"/io/input/0/name", "not_keyword_match", error::kUnknownConverter,
+       "/io/input/0"},
+      {"/io/input",
+       Json::array({{{"type", "entity_in"}, {"name", "entity_extract"}},
+                    {{"type", "entity_in"}, {"name", "translate"}}}),
+       error::kDuplicateIoEntry, "/io/input/1"},
+      {"/io/input/-",
+       {{"type", "entity_in"}, {"name", "entity_extract"}},
+       error::kDuplicatePortProducer,
+       "/io/input/1"},
+      {"/io/output/0/inputs",
+       {{"wrong", "rules.matches"}},
+       error::kUnknownField,
+       "/io/output/0/inputs/wrong"},
+      {"/io/output/-",
+       {{"type", "json_out"},
+        {"name", "translate"},
+        {"inputs", {{"translation", "rules.matches"}}}},
+       error::kDuplicateIoEntry,
+       "/io/output/1"},
+      {"/io/a~1b~0c", true, error::kDeploymentError},
+      {"/io/", true, error::kDeploymentError},
+      {"/io/output/0/a~1b~0c", true, error::kDeploymentError},
+      {"/io/output/0/", true, error::kDeploymentError}};
   for (const auto& invalid : cases) {
-    SCOPED_TRACE(invalid.label);
+    SCOPED_TRACE(invalid.path);
+    auto document = KeywordDeployment();
+    document[Json::json_pointer(invalid.path)] = invalid.value;
     PreparedDeployment prepared;
     DeploymentDiagnostic diagnostic;
-    EXPECT_FALSE(PrepareDeploymentDocument(invalid.document, {}, &prepared,
-                                           &diagnostic));
+    EXPECT_FALSE(
+        PrepareDeploymentDocument(document, {}, &prepared, &diagnostic));
     EXPECT_TRUE(prepared.inputs.empty());
     EXPECT_TRUE(prepared.outputs.empty());
     EXPECT_EQ(diagnostic.code, invalid.code);
-    EXPECT_EQ(diagnostic.path, invalid.path);
+    EXPECT_EQ(diagnostic.path,
+              invalid.diagnostic_path ? invalid.diagnostic_path : invalid.path);
   }
 }
 

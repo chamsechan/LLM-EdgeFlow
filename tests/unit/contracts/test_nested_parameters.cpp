@@ -87,13 +87,30 @@ TEST(NestedParametersTest, NestedDefaultsAndHooksProduceOwnedTypedValues) {
   ASSERT_TRUE(empty);
   EXPECT_TRUE(empty->items.empty());
   EXPECT_TRUE(empty->warehouses.empty());
-  const Parameters<StockConfig> defaulted{
-      Field("items", &StockConfig::items)
-          .Default(std::vector<StockItem>{{3, "kit", 0}})
-          .Items(ItemSpec())};
-  auto default_items = defaulted.Parse(Json::object());
-  ASSERT_TRUE(default_items);
-  EXPECT_EQ(default_items->items.at(0).prepared_units, 9);
+  for (bool items_first : {false, true}) {
+    SCOPED_TRACE(items_first);
+    int preparations = 0;
+    auto items = ItemSpec();
+    items.Prepare([&](StockItem* item, std::string*) {
+      ++preparations;
+      item->prepared_units = item->units * 3;
+      return true;
+    });
+    auto builder = Field("items", &StockConfig::items);
+    if (items_first) builder.Items(items);
+    builder.Default(std::vector<StockItem>{{3, "kit", 0}});
+    if (!items_first) builder.Items(items);
+    const Parameters<StockConfig> spec{builder};
+    EXPECT_EQ(preparations, 0);
+    EXPECT_EQ(spec.Fields()[0].default_value,
+              Json::array({{{"units", 3}, {"sku", "kit"}}}));
+    auto parsed = spec.Parse(Json::object());
+    ASSERT_TRUE(parsed);
+    EXPECT_EQ(parsed->items.at(0).prepared_units, 9);
+    EXPECT_EQ(preparations, 1);
+    EXPECT_FALSE(spec.ParseNormalized(Json::object()));
+    EXPECT_EQ(preparations, 1);
+  }
 }
 
 TEST(NestedParametersTest, PackedBooleanContainersRoundTripDefaultsAndValues) {
@@ -126,47 +143,31 @@ TEST(NestedParametersTest, PackedBooleanContainersRoundTripDefaultsAndValues) {
   EXPECT_EQ(spec.Read(*parsed), raw);
 }
 
-TEST(NestedParametersTest, NestedErrorsReportEscapedPointersAndLeafKinds) {
+TEST(NestedParametersTest, NestedErrorsIdentifyFieldsAndSemanticFailures) {
   using Kind = ConfigFieldErrorKind;
   struct Case {
-    const char* name;
     Json input;
     const char* path;
     Kind kind;
   };
   const Case cases[] = {
-      {"array item range",
-       {{"items", Json::array({{{"units", 1}}})}},
+      {{{"items", Json::array({{{"units", 1}}})}},
        "/items/0/units",
        Kind::kOutOfRange},
-      {"map array struct leaf",
-       {{"warehouses",
+      {{{"warehouses",
          {{"a/b~c", Json::array({Json::object(), {{"units", "3"}}})}}}},
        "/warehouses/a~1b~0c/1/units",
        Kind::kTypeMismatch},
-      {"unknown struct field",
-       {{"items", Json::array({{{"extra", true}}})}},
+      {{{"items", Json::array({{{"extra", true}}})}},
        "/items/0/extra",
        Kind::kUnknownField},
-      {"wrong container",
-       {{"items", Json::object()}},
-       "/items",
-       Kind::kTypeMismatch},
-      {"packed boolean leaf",
-       {{"flags", {true, 0}}},
-       "/flags/1",
-       Kind::kTypeMismatch},
-      {"primitive map array leaf",
-       {{"sizes", {{"bin", {2, 6}}}}},
-       "/sizes/bin/1",
-       Kind::kOutOfRange},
-      {"null JSON field",
-       {{"options", nullptr}},
-       "/options",
-       Kind::kTypeMismatch}};
+      {{{"items", Json::object()}}, "/items", Kind::kTypeMismatch},
+      {{{"flags", {true, 0}}}, "/flags/1", Kind::kTypeMismatch},
+      {{{"sizes", {{"bin", {2, 6}}}}}, "/sizes/bin/1", Kind::kOutOfRange},
+      {{{"options", nullptr}}, "/options", Kind::kTypeMismatch}};
   const auto spec = StockSpec();
   for (const auto& item : cases) {
-    SCOPED_TRACE(item.name);
+    SCOPED_TRACE(item.input.dump());
     Json normalized;
     std::vector<ConfigFieldValidationError> errors;
     EXPECT_FALSE(ValidateAndNormalizeFields(spec.Fields(), item.input,
@@ -178,11 +179,7 @@ TEST(NestedParametersTest, NestedErrorsReportEscapedPointersAndLeafKinds) {
     EXPECT_FALSE(spec.Parse(item.input, &diagnostic));
     EXPECT_NE(diagnostic.find(item.path), std::string::npos) << diagnostic;
   }
-}
-
-TEST(NestedParametersTest, ElementSemanticFailureIdentifiesItsContainer) {
   std::string diagnostic;
-  const auto spec = StockSpec();
   EXPECT_FALSE(spec.Parse(
       {{"warehouses", {{"dock", Json::array({{{"sku", "banned"}}})}}}},
       &diagnostic));

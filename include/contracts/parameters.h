@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/clone_ptr.h"
 #include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/diagnostic.h"
@@ -193,23 +194,11 @@ struct FieldTypeTraits<nlohmann::json> {
 template <typename T>
 struct FieldTypeTraits<std::vector<T>> {
   static constexpr ConfigValueKind kKind = ConfigValueKind::kArray;
-  static nlohmann::json ToJson(const std::vector<T>& values) {
-    auto result = nlohmann::json::array();
-    for (const auto& value : values)
-      result.push_back(FieldTypeTraits<T>::ToJson(value));
-    return result;
-  }
 };
 
 template <typename T>
 struct FieldTypeTraits<std::map<std::string, T>> {
   static constexpr ConfigValueKind kKind = ConfigValueKind::kMap;
-  static nlohmann::json ToJson(const std::map<std::string, T>& values) {
-    auto result = nlohmann::json::object();
-    for (const auto& [name, value] : values)
-      result[name] = FieldTypeTraits<T>::ToJson(value);
-    return result;
-  }
 };
 
 namespace detail {
@@ -367,69 +356,32 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
   using MemberPtr = MemberT ParamsT::*;
   using Leaf = typename detail::ParameterContainer<MemberT>::Leaf;
 
-  ConcreteFieldBinding(std::string name, MemberPtr member_ptr, bool required,
-                       bool has_default, MemberT default_val,
-                       std::optional<double> minimum,
-                       std::optional<double> maximum,
-                       std::vector<std::string> enums, std::string semantic,
-                       std::shared_ptr<const Parameters<Leaf>> item_spec,
-                       bool file)
-      : name_(std::move(name)),
+  ConcreteFieldBinding(ConfigFieldDefinition definition, MemberPtr member_ptr,
+                       std::shared_ptr<const Parameters<Leaf>> item_spec)
+      : definition_(std::move(definition)),
         member_ptr_(member_ptr),
-        required_(required),
-        has_default_(has_default),
-        default_val_(std::move(default_val)),
-        minimum_(minimum),
-        maximum_(maximum),
-        enum_values_(std::move(enums)),
-        semantic_(std::move(semantic)),
-        item_spec_(std::move(item_spec)),
-        file_(file) {}
+        item_spec_(std::move(item_spec)) {}
 
-  const std::string& Name() const override { return name_; }
+  const std::string& Name() const override { return definition_.name; }
   ConfigFieldDefinition ToFieldDefinition() const override {
-    auto result = detail::ParameterValueDefinition<MemberT>(
-        item_spec_, minimum_, maximum_, enum_values_);
-    result.name = name_;
-    result.required = required_;
-    result.semantic = semantic_;
-    result.file = file_;
-    if (has_default_) {
-      result.default_value =
-          detail::SerializeParameterValue(default_val_, item_spec_);
-      if (result.default_value.is_null())
-        throw std::invalid_argument("Default cannot be null: " + name_);
-    }
-    return result;
+    return definition_;
   }
 
   bool Assign(const nlohmann::json& normalized, ParamsT* out,
               std::string* error) const override {
     if (!out) return false;
-    const auto entry = normalized.find(name_);
+    const auto entry = normalized.find(Name());
     if (entry == normalized.end()) {
       if constexpr (detail::IsOptionalField<MemberT>::value) {
         out->*member_ptr_ = std::nullopt;
         return true;
       }
-      if (!has_default_) {
-        if (error) *error = "Missing required config field: " + name_;
-        return false;
-      }
-      const auto definition = ToFieldDefinition();
-      nlohmann::json value;
-      std::vector<ConfigFieldValidationError> errors;
-      if (!detail::NormalizeConfigValue(definition, definition.default_value,
-                                        &value, &errors, "")) {
-        if (error) *error = errors.front().message;
-        return false;
-      }
-      return detail::ExtractParameterValue(value, &(out->*member_ptr_), error,
-                                           item_spec_);
+      if (error) *error = "Missing normalized config field: " + Name();
+      return false;
     }
     if (!detail::ExtractParameterValue(*entry, &(out->*member_ptr_), error,
                                        item_spec_)) {
-      if (error) *error = "Field '" + name_ + "': " + *error;
+      if (error) *error = "Field '" + Name() + "': " + *error;
       return false;
     }
     return true;
@@ -451,16 +403,9 @@ class ConcreteFieldBinding final : public ParameterFieldBinding<ParamsT> {
     }
     return detail::SerializeParameterValue(values.*member_ptr_, item_spec_);
   }
-  std::string name_;
+  ConfigFieldDefinition definition_;
   MemberPtr member_ptr_;
-  bool required_;
-  bool has_default_;
-  MemberT default_val_;
-  std::optional<double> minimum_, maximum_;
-  std::vector<std::string> enum_values_;
-  std::string semantic_;
   std::shared_ptr<const Parameters<Leaf>> item_spec_;
-  bool file_ = false;
 };
 
 template <typename ParamsT, typename MemberT>
@@ -536,9 +481,21 @@ class FieldBuilder {
           "Field '" + name_ +
           "' must declare exactly one of Required or Default");
     }
+    // 整条声明完成后生成 schema，允许 Items 出现在 Default 之后。
+    auto definition = detail::ParameterValueDefinition<MemberT>(
+        item_spec_, minimum_, maximum_, enum_values_);
+    definition.name = name_;
+    definition.required = required_;
+    definition.semantic = semantic_;
+    definition.file = file_;
+    if (has_default_) {
+      definition.default_value =
+          detail::SerializeParameterValue(default_val_, item_spec_);
+      if (definition.default_value.is_null())
+        throw std::invalid_argument("Default cannot be null: " + name_);
+    }
     return std::make_unique<ConcreteFieldBinding<ParamsT, MemberT>>(
-        name_, member_ptr_, required_, has_default_, default_val_, minimum_,
-        maximum_, enum_values_, semantic_, item_spec_, file_);
+        std::move(definition), member_ptr_, item_spec_);
   }
 
  private:
@@ -562,43 +519,15 @@ inline FieldBuilder<ParamsT, MemberT> Field(std::string name,
 }
 
 template <typename ParamsT>
-class ParameterFieldBindingHolder {
+class ParameterFieldBindingHolder
+    : public detail::ClonePtr<ParameterFieldBinding<ParamsT>> {
  public:
+  using detail::ClonePtr<ParameterFieldBinding<ParamsT>>::ClonePtr;
+
   template <typename MemberT>
   ParameterFieldBindingHolder(
       const FieldBuilder<ParamsT, MemberT>& builder)  // NOLINT
-      : binding_(builder.Build()) {}
-
-  ParameterFieldBindingHolder(
-      std::unique_ptr<ParameterFieldBinding<ParamsT>> binding)
-      : binding_(std::move(binding)) {}
-
-  ParameterFieldBindingHolder(const ParameterFieldBindingHolder& other)
-      : binding_(other.binding_ ? other.binding_->Clone() : nullptr) {}
-
-  ParameterFieldBindingHolder(ParameterFieldBindingHolder&&) noexcept = default;
-  ParameterFieldBindingHolder& operator=(
-      const ParameterFieldBindingHolder& other) {
-    if (this != &other) {
-      binding_ = other.binding_ ? other.binding_->Clone() : nullptr;
-    }
-    return *this;
-  }
-  ParameterFieldBindingHolder& operator=(
-      ParameterFieldBindingHolder&&) noexcept = default;
-
-  const ParameterFieldBinding<ParamsT>* get() const noexcept {
-    return binding_.get();
-  }
-  const ParameterFieldBinding<ParamsT>& operator*() const noexcept {
-    return *binding_;
-  }
-  const ParameterFieldBinding<ParamsT>* operator->() const noexcept {
-    return binding_.get();
-  }
-
- private:
-  std::unique_ptr<ParameterFieldBinding<ParamsT>> binding_;
+      : detail::ClonePtr<ParameterFieldBinding<ParamsT>>(builder.Build()) {}
 };
 
 template <typename Outer, typename Inner>
@@ -622,7 +551,7 @@ class IncludedFieldBinding final : public ParameterFieldBinding<Outer> {
            binding_->ConflictsWithMember(*included->binding_);
   }
   std::unique_ptr<ParameterFieldBinding<Outer>> Clone() const override {
-    return std::make_unique<IncludedFieldBinding>(member_, binding_->Clone());
+    return std::make_unique<IncludedFieldBinding>(*this);
   }
 
  private:
@@ -630,7 +559,7 @@ class IncludedFieldBinding final : public ParameterFieldBinding<Outer> {
     return binding_->Read(values.*member_);
   }
   Inner Outer::*member_;
-  std::unique_ptr<ParameterFieldBinding<Inner>> binding_;
+  detail::ClonePtr<ParameterFieldBinding<Inner>> binding_;
 };
 
 struct NoParameters {};
@@ -645,6 +574,12 @@ class Parameters {
       std::function<bool(ParamsT*, const BindingFacts&, std::string*)>;
 
   Parameters() = default;
+  Parameters(const Parameters&) = default;
+  Parameters(Parameters&&) noexcept = default;
+  Parameters& operator=(Parameters&&) noexcept = default;
+  Parameters& operator=(const Parameters& other) {
+    return *this = Parameters(other);
+  }
 
   Parameters(
       std::initializer_list<ParameterFieldBindingHolder<ParamsT>> fields) {
@@ -667,7 +602,7 @@ class Parameters {
         }
       }
       seen_names.insert(name);
-      bindings_.push_back(holder->Clone());
+      bindings_.push_back(holder);
     }
 
     // 实例化配置字段定义，以便提前校验默认值
@@ -680,36 +615,6 @@ class Parameters {
       throw std::invalid_argument(error);
     }
   }
-
-  Parameters(const Parameters& other)
-      : definitions_(other.definitions_),
-        prepare_fn_(other.prepare_fn_),
-        included_validators_(other.included_validators_),
-        semantic_validator_(other.semantic_validator_),
-        binding_validator_(other.binding_validator_) {
-    bindings_.reserve(other.bindings_.size());
-    for (const auto& b : other.bindings_) {
-      bindings_.push_back(b ? b->Clone() : nullptr);
-    }
-  }
-
-  Parameters(Parameters&&) noexcept = default;
-  Parameters& operator=(const Parameters& other) {
-    if (this != &other) {
-      definitions_ = other.definitions_;
-      prepare_fn_ = other.prepare_fn_;
-      included_validators_ = other.included_validators_;
-      semantic_validator_ = other.semantic_validator_;
-      binding_validator_ = other.binding_validator_;
-      bindings_.clear();
-      bindings_.reserve(other.bindings_.size());
-      for (const auto& b : other.bindings_) {
-        bindings_.push_back(b ? b->Clone() : nullptr);
-      }
-    }
-    return *this;
-  }
-  Parameters& operator=(Parameters&&) noexcept = default;
 
   template <typename Inner, typename Outer>
   Parameters& Include(Inner Outer::*member, Parameters<Inner> group) {
@@ -755,8 +660,8 @@ class Parameters {
     return *this;
   }
 
-  const std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>>& Bindings()
-      const noexcept {
+  const std::vector<detail::ClonePtr<ParameterFieldBinding<ParamsT>>>&
+  Bindings() const noexcept {
     return bindings_;
   }
 
@@ -932,7 +837,7 @@ class Parameters {
   }
 
  private:
-  std::vector<std::unique_ptr<ParameterFieldBinding<ParamsT>>> bindings_;
+  std::vector<detail::ClonePtr<ParameterFieldBinding<ParamsT>>> bindings_;
   std::vector<ConfigFieldDefinition> definitions_;
   PrepareFunction prepare_fn_;
   std::vector<PrepareFunction> included_validators_;

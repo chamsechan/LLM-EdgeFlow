@@ -36,7 +36,7 @@ bool ParseParameters(const ParameterSet& declaration,
                 path + "/params" + error.path, error.message);
   }
   std::string error;
-  if (!declaration.Parse(normalized, values, &error))
+  if (!declaration.ParseNormalized(normalized, values, &error))
     return Fail(diagnostic, error::kInvalidCombination, path + "/params",
                 error);
   return true;
@@ -198,7 +198,6 @@ bool PrepareDeploymentDocument(const nlohmann::json& document,
   PipelineDiagnostic core_diagnostic;
   if (!ParsePipelineConfig(prepared.neutral_pipeline_json,
                            &prepared.parsed_pipeline, &core_diagnostic)) {
-    if (diagnostic) diagnostic->pipeline_diagnostic = core_diagnostic;
     return Fail(diagnostic, core_diagnostic.code, core_diagnostic.path,
                 core_diagnostic.message);
   }

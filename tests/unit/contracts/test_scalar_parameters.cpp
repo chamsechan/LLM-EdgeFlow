@@ -22,14 +22,17 @@ struct ScalarConfig {
 };
 
 auto ScalarSpec() {
-  return Parameters<ScalarConfig>{
+  auto count = Field("count", &ScalarConfig::count).Default(2).Range(1, 4);
+  auto spec = Parameters<ScalarConfig>{
       Field("name", &ScalarConfig::name).Required(),
       Field("mode", &ScalarConfig::mode).Default("fast").Enum({"fast", "slow"}),
-      Field("count", &ScalarConfig::count).Default(2).Range(1, 4),
+      count,
       Field("id", &ScalarConfig::id).Default(int64_t{0}),
       Field("ratio", &ScalarConfig::ratio).Default(0.25).Range(0, 1),
       Field("enabled", &ScalarConfig::enabled).Default(false),
       Field("limit", &ScalarConfig::limit).Range(1, 8)};
+  count.Default(7).Range(5, 9);
+  return spec;
 }
 
 TEST(ScalarParametersTest, DefaultsAndExplicitValuesReachTypedState) {
@@ -65,61 +68,42 @@ TEST(ScalarParametersTest, DefaultsAndExplicitValuesReachTypedState) {
 
 TEST(ScalarParametersTest, InvalidChangesIdentifyTheFieldAndRule) {
   using Kind = ConfigFieldErrorKind;
-  struct Case {
-    const char* name;
-    Json patch;
-    const char* path;
-    Kind kind;
-  };
-  const Case cases[] = {
-      {"missing required", Json::array({{{"op", "remove"}, {"path", "/name"}}}),
-       "/name", Kind::kMissingField},
-      {"unknown escaped field",
-       Json::array({{{"op", "add"}, {"path", "/a~1b~0c"}, {"value", 1}}}),
-       "/a~1b~0c", Kind::kUnknownField},
-      {"null string",
-       Json::array(
-           {{{"op", "replace"}, {"path", "/name"}, {"value", nullptr}}}),
-       "/name", Kind::kTypeMismatch},
-      {"integer requires integer JSON",
-       Json::array({{{"op", "add"}, {"path", "/count"}, {"value", 2.0}}}),
-       "/count", Kind::kTypeMismatch},
-      {"lower bound",
-       Json::array({{{"op", "add"}, {"path", "/count"}, {"value", 0}}}),
-       "/count", Kind::kOutOfRange},
-      {"upper bound",
-       Json::array({{{"op", "add"}, {"path", "/ratio"}, {"value", 1.01}}}),
-       "/ratio", Kind::kOutOfRange},
-      {"enum",
-       Json::array({{{"op", "add"}, {"path", "/mode"}, {"value", "other"}}}),
-       "/mode", Kind::kInvalidEnum},
-      {"boolean requires boolean JSON",
-       Json::array({{{"op", "add"}, {"path", "/enabled"}, {"value", 1}}}),
-       "/enabled", Kind::kTypeMismatch},
-      {"optional supplied null",
-       Json::array({{{"op", "add"}, {"path", "/limit"}, {"value", nullptr}}}),
-       "/limit", Kind::kTypeMismatch},
-      {"nonfinite",
-       Json::array({{{"op", "add"},
-                     {"path", "/ratio"},
-                     {"value", std::numeric_limits<double>::infinity()}}}),
-       "/ratio", Kind::kNonFinite}};
   const auto spec = ScalarSpec();
-  for (const auto& item : cases) {
-    SCOPED_TRACE(item.name);
-    const Json input = Json{{"name", "valid"}}.patch(item.patch);
+  auto reject = [&](const Json& input, const char* path, Kind kind) {
+    SCOPED_TRACE(input.dump());
     Json normalized = "unchanged";
     std::vector<ConfigFieldValidationError> errors;
     EXPECT_FALSE(
         ValidateAndNormalizeFields(spec.Fields(), input, &normalized, &errors));
     ASSERT_EQ(errors.size(), 1U);
-    EXPECT_EQ(errors[0].path, item.path);
-    EXPECT_EQ(errors[0].kind, item.kind);
+    EXPECT_EQ(errors[0].path, path);
+    EXPECT_EQ(errors[0].kind, kind);
     EXPECT_EQ(normalized, "unchanged");
     std::string diagnostic;
     EXPECT_FALSE(spec.Parse(input, &diagnostic));
-    EXPECT_NE(diagnostic.find(item.path), std::string::npos) << diagnostic;
+    EXPECT_NE(diagnostic.find(path), std::string::npos) << diagnostic;
+  };
+  struct InvalidField {
+    const char* path;
+    Json value;
+    Kind kind;
+  };
+  const InvalidField cases[] = {
+      {"/a~1b~0c", 1, Kind::kUnknownField},
+      {"/name", nullptr, Kind::kTypeMismatch},
+      {"/count", 2.0, Kind::kTypeMismatch},
+      {"/count", 0, Kind::kOutOfRange},
+      {"/ratio", 1.01, Kind::kOutOfRange},
+      {"/mode", "other", Kind::kInvalidEnum},
+      {"/enabled", 1, Kind::kTypeMismatch},
+      {"/limit", nullptr, Kind::kTypeMismatch},
+      {"/ratio", std::numeric_limits<double>::infinity(), Kind::kNonFinite}};
+  for (const auto& item : cases) {
+    Json input = {{"name", "valid"}};
+    input[Json::json_pointer(item.path)] = item.value;
+    reject(input, item.path, item.kind);
   }
+  reject(Json::object(), "/name", Kind::kMissingField);
   std::string diagnostic;
   EXPECT_FALSE(spec.Parse(Json::array(), &diagnostic));
   EXPECT_FALSE(diagnostic.empty());

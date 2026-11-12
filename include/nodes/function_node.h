@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "contracts/clone_ptr.h"
 #include "contracts/config_schema.h"
 #include "contracts/config_schema_validation.h"
 #include "contracts/error_codes.h"
@@ -162,11 +163,9 @@ class InputPortBinding {
   virtual ~InputPortBinding() = default;
   virtual const std::string& LogicalName() const = 0;
   virtual NodePortDefinition ToPortDefinition() const = 0;
-  virtual bool IsRequired() const = 0;
   virtual bool BindPort(const NodeInitContext& init_ctx) = 0;
   virtual bool PopulateInput(const AlgContext& ctx, InputsT* inputs,
                              std::string* err) const = 0;
-  virtual bool HasBatch(const InputsT& inputs) const = 0;
   virtual TraceableAlignmentResult ValidateAlignment(
       const InputsT& inputs, const IProvenanceReader& output_reader) const = 0;
   virtual std::unique_ptr<InputPortBinding<InputsT>> Clone() const = 0;
@@ -180,18 +179,18 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   ConcreteInputPortBinding(std::string name, MemberPtr member_ptr,
                            bool required, PortFlow flow,
                            bool allow_missing_value = false)
-      : name_(std::move(name)),
-        member_ptr_(member_ptr),
+      : member_ptr_(member_ptr),
         required_(required),
         flow_(std::move(flow)),
         allow_missing_value_(allow_missing_value),
-        in_port_(name_) {}
+        in_port_(std::move(name)) {}
 
-  const std::string& LogicalName() const override { return name_; }
-  bool IsRequired() const override { return required_; }
+  const std::string& LogicalName() const override {
+    return in_port_.LogicalName();
+  }
 
   NodePortDefinition ToPortDefinition() const override {
-    return NodePortDefinition{name_,
+    return NodePortDefinition{LogicalName(),
                               BlackboardTypeTraits<BatchT>::TypeName(),
                               required_,
                               flow_.cardinality,
@@ -205,13 +204,13 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
         *init_ctx.plan, PortDirection::kInput, in_port_);
     if (result.status != detail::PortBindingStatus::kUnbound) {
       if (result.status == detail::PortBindingStatus::kTypeMismatch) {
-        return init_ctx.Fail("Input port type mismatch for '" + name_ +
+        return init_ctx.Fail("Input port type mismatch for '" + LogicalName() +
                              "' (expected: " + in_port_.TypeId() +
                              ", bound: " + result.binding->type_id + ")");
       }
     } else {
       if (required_) {
-        return init_ctx.Fail("Required input port '" + name_ +
+        return init_ctx.Fail("Required input port '" + LogicalName() +
                              "' has no binding in plan");
       }
       in_port_.Unbind();
@@ -225,7 +224,8 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
     if (!inputs) return false;
     if (!in_port_.IsBound()) {
       if (required_) {
-        if (err) *err = "Required input port '" + name_ + "' is not bound";
+        if (err)
+          *err = "Required input port '" + LogicalName() + "' is not bound";
         return false;
       }
       inputs->*member_ptr_ = nullptr;
@@ -234,8 +234,9 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
     const auto* val = in_port_.Get(ctx);
     if (!val && in_port_.Has(ctx)) {
       if (err) {
-        *err = "Input port type mismatch for '" + name_ + "' (bound key: '" +
-               in_port_.ActualKey() + "') expected type: " + in_port_.TypeId();
+        *err = "Input port type mismatch for '" + LogicalName() +
+               "' (bound key: '" + in_port_.ActualKey() +
+               "') expected type: " + in_port_.TypeId();
       }
       return false;
     }
@@ -244,15 +245,11 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
       return true;
     }
     if (!val) {
-      if (err) *err = "Missing required input for port '" + name_ + "'";
+      if (err) *err = "Missing required input for port '" + LogicalName() + "'";
       return false;
     }
     inputs->*member_ptr_ = val;
     return true;
-  }
-
-  bool HasBatch(const InputsT& inputs) const override {
-    return (inputs.*member_ptr_) != nullptr;
   }
 
   TraceableAlignmentResult ValidateAlignment(
@@ -260,7 +257,10 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
       const IProvenanceReader& output_reader) const override {
     const auto* batch = inputs.*member_ptr_;
     if (!batch) {
-      return {TraceableAlignmentError::kCountMismatch, 0};
+      return {output_reader.Size() == 0
+                  ? TraceableAlignmentError::kNone
+                  : TraceableAlignmentError::kCountMismatch,
+              0};
     }
     if (batch->size() != output_reader.Size()) {
       return {TraceableAlignmentError::kCountMismatch,
@@ -280,7 +280,6 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   }
 
  private:
-  std::string name_;
   MemberPtr member_ptr_;
   bool required_;
   PortFlow flow_;
@@ -288,59 +287,18 @@ class ConcreteInputPortBinding final : public InputPortBinding<InputsT> {
   BoundInput<BatchT> in_port_;
 };
 
-template <typename InputsT>
-class InputBindingHolder {
- public:
-  InputBindingHolder(std::unique_ptr<InputPortBinding<InputsT>> b)  // NOLINT
-      : binding_(std::move(b)) {}
-
-  InputBindingHolder(const InputBindingHolder& other)
-      : binding_(other.binding_ ? other.binding_->Clone() : nullptr) {}
-
-  InputBindingHolder(InputBindingHolder&&) noexcept = default;
-  InputBindingHolder& operator=(const InputBindingHolder& other) {
-    if (this != &other) {
-      binding_ = other.binding_ ? other.binding_->Clone() : nullptr;
-    }
-    return *this;
-  }
-  InputBindingHolder& operator=(InputBindingHolder&&) noexcept = default;
-
-  const InputPortBinding<InputsT>* get() const noexcept {
-    return binding_.get();
-  }
-  InputPortBinding<InputsT>* get() noexcept { return binding_.get(); }
-  const InputPortBinding<InputsT>& operator*() const noexcept {
-    return *binding_;
-  }
-  InputPortBinding<InputsT>& operator*() noexcept { return *binding_; }
-  const InputPortBinding<InputsT>* operator->() const noexcept {
-    return binding_.get();
-  }
-  InputPortBinding<InputsT>* operator->() noexcept { return binding_.get(); }
-
-  std::unique_ptr<InputPortBinding<InputsT>> Clone() const {
-    return binding_ ? binding_->Clone() : nullptr;
-  }
-
- private:
-  std::unique_ptr<InputPortBinding<InputsT>> binding_;
-};
-
 template <typename InputsT, typename BatchT>
-inline InputBindingHolder<InputsT> Required(std::string name,
-                                            const BatchT* InputsT::*member_ptr,
-                                            PortFlow flow = {}) {
-  return InputBindingHolder<InputsT>(
+inline detail::ClonePtr<InputPortBinding<InputsT>> Required(
+    std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
+  return detail::ClonePtr<InputPortBinding<InputsT>>(
       std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
           std::move(name), member_ptr, true, flow));
 }
 
 template <typename InputsT, typename BatchT>
-inline InputBindingHolder<InputsT> Optional(std::string name,
-                                            const BatchT* InputsT::*member_ptr,
-                                            PortFlow flow = {}) {
-  return InputBindingHolder<InputsT>(
+inline detail::ClonePtr<InputPortBinding<InputsT>> Optional(
+    std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
+  return detail::ClonePtr<InputPortBinding<InputsT>>(
       std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
           std::move(name), member_ptr, false, flow));
 }
@@ -350,9 +308,9 @@ inline InputBindingHolder<InputsT> Optional(std::string name,
  * （例如模板缺失变量策略或按条件使用的上下文）。
  */
 template <typename InputsT, typename BatchT>
-inline InputBindingHolder<InputsT> OptionalValue(
+inline detail::ClonePtr<InputPortBinding<InputsT>> OptionalValue(
     std::string name, const BatchT* InputsT::*member_ptr, PortFlow flow = {}) {
-  return InputBindingHolder<InputsT>(
+  return detail::ClonePtr<InputPortBinding<InputsT>>(
       std::make_unique<ConcreteInputPortBinding<InputsT, BatchT>>(
           std::move(name), member_ptr, false, std::move(flow), true));
 }
@@ -360,32 +318,14 @@ inline InputBindingHolder<InputsT> OptionalValue(
 template <typename InputsT>
 class InputsOf {
  public:
-  InputsOf(std::initializer_list<InputBindingHolder<InputsT>> bindings) {
-    bindings_.reserve(bindings.size());
-    for (const auto& b : bindings) {
-      bindings_.push_back(b.Clone());
-    }
-  }
+  InputsOf(std::initializer_list<detail::ClonePtr<InputPortBinding<InputsT>>>
+               bindings)
+      : bindings_(bindings) {}
 
-  InputsOf(const InputsOf& other) {
-    bindings_.reserve(other.bindings_.size());
-    for (const auto& b : other.bindings_) {
-      bindings_.push_back(b ? b->Clone() : nullptr);
-    }
-  }
-
+  InputsOf(const InputsOf&) = default;
   InputsOf(InputsOf&&) noexcept = default;
-  InputsOf& operator=(const InputsOf& other) {
-    if (this != &other) {
-      bindings_.clear();
-      bindings_.reserve(other.bindings_.size());
-      for (const auto& b : other.bindings_) {
-        bindings_.push_back(b ? b->Clone() : nullptr);
-      }
-    }
-    return *this;
-  }
   InputsOf& operator=(InputsOf&&) noexcept = default;
+  InputsOf& operator=(const InputsOf& other) { return *this = InputsOf(other); }
 
   std::vector<NodePortDefinition> ToPortDefinitions() const {
     std::vector<NodePortDefinition> defs;
@@ -423,7 +363,7 @@ class InputsOf {
   }
 
  private:
-  std::vector<std::unique_ptr<InputPortBinding<InputsT>>> bindings_;
+  std::vector<detail::ClonePtr<InputPortBinding<InputsT>>> bindings_;
 };
 
 using OutputAlignmentCheck = std::function<TraceableAlignmentResult(
@@ -446,14 +386,9 @@ class OutputBinding {
 template <typename ValueT, typename BatchT>
 class TypedOutputBinding final : public OutputBinding<ValueT> {
  public:
-  using Accessor = std::function<BatchT&(ValueT&)>;
-  using ConstAccessor = std::function<const BatchT&(const ValueT&)>;
-  TypedOutputBinding(std::string name, Accessor access, ConstAccessor read,
-                     PortFlow flow, std::string anchor,
+  TypedOutputBinding(std::string name, PortFlow flow, std::string anchor,
                      BatchT ValueT::*member = nullptr)
       : port_(std::move(name)),
-        access_(std::move(access)),
-        read_(std::move(read)),
         flow_(std::move(flow)),
         anchor_(std::move(anchor)),
         member_(member) {}
@@ -483,7 +418,7 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
   std::optional<NodeFailure> Validate(
       const ValueT& value, const OutputAlignmentCheck& check) const override {
     if (anchor_.empty()) return std::nullopt;
-    TraceableBatchProvenanceReader<BatchT> reader(read_(value));
+    TraceableBatchProvenanceReader<BatchT> reader(Access(value));
     auto result = check(anchor_, reader);
     if (result.error == TraceableAlignmentError::kCountMismatch)
       return NodeFailure{
@@ -500,51 +435,42 @@ class TypedOutputBinding final : public OutputBinding<ValueT> {
     return member_ && typed && member_ == typed->member_;
   }
   void Publish(AlgContext& context, ValueT& value) const override {
-    port_.Set(context, std::move(access_(value)));
+    port_.Set(context, std::move(Access(value)));
   }
   std::unique_ptr<OutputBinding<ValueT>> Clone() const override {
     return std::make_unique<TypedOutputBinding>(*this);
   }
 
  private:
+  template <typename T>
+  decltype(auto) Access(T& value) const {
+    if constexpr (std::is_same_v<ValueT, BatchT>) {
+      return (value);
+    } else {
+      return (value.*member_);
+    }
+  }
+
   BoundOutput<BatchT> port_;
-  Accessor access_;
-  ConstAccessor read_;
   PortFlow flow_;
   std::string anchor_;
   BatchT ValueT::*member_;
 };
 
-template <typename ValueT>
-class OutputBindingHolder {
- public:
-  OutputBindingHolder(std::unique_ptr<OutputBinding<ValueT>> binding)  // NOLINT
-      : binding_(std::move(binding)) {}
-  OutputBindingHolder(const OutputBindingHolder& other)
-      : binding_(other.binding_->Clone()) {}
-  OutputBindingHolder(OutputBindingHolder&&) noexcept = default;
-  std::unique_ptr<OutputBinding<ValueT>> Clone() const {
-    return binding_->Clone();
-  }
-
- private:
-  std::unique_ptr<OutputBinding<ValueT>> binding_;
-};
-
 template <typename ValueT, typename BatchT>
-OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
-                                     PortFlow flow = {},
-                                     std::string anchor = {}) {
-  return OutputBindingHolder<ValueT>(
+detail::ClonePtr<OutputBinding<ValueT>> Produced(std::string name,
+                                                 BatchT ValueT::*member,
+                                                 PortFlow flow = {},
+                                                 std::string anchor = {}) {
+  return detail::ClonePtr<OutputBinding<ValueT>>(
       std::make_unique<TypedOutputBinding<ValueT, BatchT>>(
-          std::move(name), [member](ValueT& v) -> BatchT& { return v.*member; },
-          [member](const ValueT& v) -> const BatchT& { return v.*member; },
-          std::move(flow), std::move(anchor), member));
+          std::move(name), std::move(flow), std::move(anchor), member));
 }
 
 template <typename ValueT, typename BatchT>
-OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
-                                     std::string anchor) {
+detail::ClonePtr<OutputBinding<ValueT>> Produced(std::string name,
+                                                 BatchT ValueT::*member,
+                                                 std::string anchor) {
   if (anchor.empty())
     throw std::invalid_argument("Preserved output requires an anchor input");
   return Produced(std::move(name), member, PortFlow{}, std::move(anchor));
@@ -553,10 +479,11 @@ OutputBindingHolder<ValueT> Produced(std::string name, BatchT ValueT::*member,
 template <typename ValueT>
 class OutputsOf {
  public:
-  OutputsOf(std::initializer_list<OutputBindingHolder<ValueT>> bindings) {
+  OutputsOf(
+      std::initializer_list<detail::ClonePtr<OutputBinding<ValueT>>> bindings) {
     std::unordered_set<std::string> names;
     for (const auto& binding : bindings) {
-      auto output = binding.Clone();
+      auto output = binding;
       const auto name = output->Definition().logical_name;
       if (!names.insert(name).second)
         throw std::invalid_argument("Duplicate output port");
@@ -568,18 +495,11 @@ class OutputsOf {
       bindings_.push_back(std::move(output));
     }
   }
-  OutputsOf(const OutputsOf& other) {
-    for (const auto& binding : other.bindings_)
-      bindings_.push_back(binding->Clone());
-  }
+  OutputsOf(const OutputsOf&) = default;
   OutputsOf(OutputsOf&&) noexcept = default;
   OutputsOf& operator=(OutputsOf&&) noexcept = default;
   OutputsOf& operator=(const OutputsOf& other) {
-    if (this != &other) {
-      OutputsOf copy(other);
-      *this = std::move(copy);
-    }
-    return *this;
+    return *this = OutputsOf(other);
   }
   std::vector<NodePortDefinition> ToPortDefinitions() const {
     std::vector<NodePortDefinition> definitions;
@@ -610,11 +530,6 @@ class OutputsOf {
       const auto* port = ports.FindPort(name);
       if (!port)
         throw std::logic_error("Output anchor input is not declared: " + name);
-      if (!port->HasBatch(inputs))
-        return TraceableAlignmentResult{
-            output.Size() == 0 ? TraceableAlignmentError::kNone
-                               : TraceableAlignmentError::kCountMismatch,
-            0};
       return port->ValidateAlignment(inputs, output);
     };
     for (const auto& binding : bindings_) {
@@ -627,17 +542,15 @@ class OutputsOf {
   }
 
  private:
-  std::vector<std::unique_ptr<OutputBinding<ValueT>>> bindings_;
+  std::vector<detail::ClonePtr<OutputBinding<ValueT>>> bindings_;
 };
 
 template <typename BatchT>
 OutputsOf<BatchT> ProducedBatch(std::string name, PortFlow flow = {},
                                 std::string anchor = {}) {
-  return OutputsOf<BatchT>({OutputBindingHolder<BatchT>(
+  return OutputsOf<BatchT>({detail::ClonePtr<OutputBinding<BatchT>>(
       std::make_unique<TypedOutputBinding<BatchT, BatchT>>(
-          std::move(name), [](BatchT& v) -> BatchT& { return v; },
-          [](const BatchT& v) -> const BatchT& { return v; }, std::move(flow),
-          std::move(anchor)))});
+          std::move(name), std::move(flow), std::move(anchor)))});
 }
 
 template <typename BatchT>
@@ -658,8 +571,7 @@ class ModelSlotBinding {
   virtual const std::string& ModelType() const = 0;
   virtual ConfigFieldDefinition ToConfigField() const = 0;
   virtual bool Bind(const NodeInitContext& init_ctx,
-                    SessionContext& session_ctx,
-                    const nlohmann::json& normalized_params, ModelsT* models,
+                    SessionContext& session_ctx, ModelsT* models,
                     std::string* err) = 0;
   virtual std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const = 0;
 };
@@ -686,8 +598,7 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
     return field;
   }
   bool Bind(const NodeInitContext& init, SessionContext& session,
-            const nlohmann::json&, ModelsT* models,
-            std::string* error) override {
+            ModelsT* models, std::string* error) override {
     std::string model_name;
     if (!ResolveBoundModelName(*init.plan, slot_, ModelType(), &model_name,
                                error))
@@ -713,52 +624,10 @@ class TypedModelSlotBinding final : public ModelSlotBinding<ModelsT> {
   CallT ModelsT::*member_;
 };
 
-template <typename ModelsT>
-class ModelSlotBindingHolder {
- public:
-  ModelSlotBindingHolder(
-      std::unique_ptr<ModelSlotBinding<ModelsT>> b)  // NOLINT
-      : binding_(std::move(b)) {}
-
-  ModelSlotBindingHolder(const ModelSlotBindingHolder& other)
-      : binding_(other.binding_ ? other.binding_->Clone() : nullptr) {}
-
-  ModelSlotBindingHolder(ModelSlotBindingHolder&&) noexcept = default;
-  ModelSlotBindingHolder& operator=(const ModelSlotBindingHolder& other) {
-    if (this != &other) {
-      binding_ = other.binding_ ? other.binding_->Clone() : nullptr;
-    }
-    return *this;
-  }
-  ModelSlotBindingHolder& operator=(ModelSlotBindingHolder&&) noexcept =
-      default;
-
-  const ModelSlotBinding<ModelsT>* get() const noexcept {
-    return binding_.get();
-  }
-  ModelSlotBinding<ModelsT>* get() noexcept { return binding_.get(); }
-  const ModelSlotBinding<ModelsT>& operator*() const noexcept {
-    return *binding_;
-  }
-  ModelSlotBinding<ModelsT>& operator*() noexcept { return *binding_; }
-  const ModelSlotBinding<ModelsT>* operator->() const noexcept {
-    return binding_.get();
-  }
-  ModelSlotBinding<ModelsT>* operator->() noexcept { return binding_.get(); }
-
-  std::unique_ptr<ModelSlotBinding<ModelsT>> Clone() const {
-    return binding_ ? binding_->Clone() : nullptr;
-  }
-
- private:
-  std::unique_ptr<ModelSlotBinding<ModelsT>> binding_;
-};
-
 template <typename ModelsT, typename CallT>
-inline ModelSlotBindingHolder<ModelsT> Model(std::string slot,
-                                             std::string field,
-                                             CallT ModelsT::*member) {
-  return ModelSlotBindingHolder<ModelsT>(
+inline detail::ClonePtr<ModelSlotBinding<ModelsT>> Model(
+    std::string slot, std::string field, CallT ModelsT::*member) {
+  return detail::ClonePtr<ModelSlotBinding<ModelsT>>(
       std::make_unique<TypedModelSlotBinding<ModelsT, CallT>>(
           std::move(slot), std::move(field), member));
 }
@@ -767,8 +636,13 @@ template <typename ModelsT>
 class ModelsOf {
  public:
   ModelsOf() = default;
+  ModelsOf(const ModelsOf&) = default;
+  ModelsOf(ModelsOf&&) noexcept = default;
+  ModelsOf& operator=(ModelsOf&&) noexcept = default;
+  ModelsOf& operator=(const ModelsOf& other) { return *this = ModelsOf(other); }
 
-  ModelsOf(std::initializer_list<ModelSlotBindingHolder<ModelsT>> bindings) {
+  ModelsOf(std::initializer_list<detail::ClonePtr<ModelSlotBinding<ModelsT>>>
+               bindings) {
     std::unordered_set<std::string> seen_slots;
     std::unordered_set<std::string> seen_fields;
     bindings_.reserve(bindings.size());
@@ -784,29 +658,9 @@ class ModelsOf {
       }
       seen_slots.insert(slot);
       seen_fields.insert(field);
-      bindings_.push_back(b.Clone());
+      bindings_.push_back(b);
     }
   }
-
-  ModelsOf(const ModelsOf& other) {
-    bindings_.reserve(other.bindings_.size());
-    for (const auto& b : other.bindings_) {
-      bindings_.push_back(b ? b->Clone() : nullptr);
-    }
-  }
-
-  ModelsOf(ModelsOf&&) noexcept = default;
-  ModelsOf& operator=(const ModelsOf& other) {
-    if (this != &other) {
-      bindings_.clear();
-      bindings_.reserve(other.bindings_.size());
-      for (const auto& b : other.bindings_) {
-        bindings_.push_back(b ? b->Clone() : nullptr);
-      }
-    }
-    return *this;
-  }
-  ModelsOf& operator=(ModelsOf&&) noexcept = default;
 
   std::vector<ConfigFieldDefinition> ToConfigFields() const {
     std::vector<ConfigFieldDefinition> fields;
@@ -818,47 +672,28 @@ class ModelsOf {
   }
 
   bool BindModels(const NodeInitContext& init_ctx, SessionContext& session_ctx,
-                  const nlohmann::json& config, ModelsT* models,
-                  std::string* err) {
+                  ModelsT* models, std::string* err) {
     for (auto& b : bindings_) {
-      if (!b->Bind(init_ctx, session_ctx, config, models, err)) return false;
+      if (!b->Bind(init_ctx, session_ctx, models, err)) return false;
     }
     return true;
   }
 
-  const std::vector<std::unique_ptr<ModelSlotBinding<ModelsT>>>& Bindings()
+  const std::vector<detail::ClonePtr<ModelSlotBinding<ModelsT>>>& Bindings()
       const noexcept {
     return bindings_;
   }
 
  private:
-  std::vector<std::unique_ptr<ModelSlotBinding<ModelsT>>> bindings_;
-};
-
-template <>
-class ModelsOf<NoModels> {
- public:
-  std::vector<ConfigFieldDefinition> ToConfigFields() const { return {}; }
-  bool BindModels(const NodeInitContext&, SessionContext&,
-                  const nlohmann::json&, NoModels*, std::string*) {
-    return true;
-  }
-  static const std::vector<std::unique_ptr<ModelSlotBinding<NoModels>>>&
-  Bindings() noexcept {
-    static const std::vector<std::unique_ptr<ModelSlotBinding<NoModels>>> empty;
-    return empty;
-  }
+  std::vector<detail::ClonePtr<ModelSlotBinding<ModelsT>>> bindings_;
 };
 
 template <typename InputsT, typename OutputBatchT, typename ParamsT,
           typename ModelsT, typename RunFnT>
 class NodeSpec {
  public:
-  using InputsType = InputsT;
-  using OutputBatch = OutputBatchT;
   using ParametersType = ParamsT;
   using ModelsType = ModelsT;
-  using RunFunctionType = RunFnT;
 
   using RunSignature = detail::RunSignature<RunFnT, InputsT, ParamsT, ModelsT>;
   using RunResult = std::decay_t<typename RunSignature::Result>;
@@ -886,6 +721,15 @@ class NodeSpec {
         models_(std::move(models)),
         fn_(std::move(fn)) {
     output_.CheckAnchors(inputs_);
+  }
+
+  NodeSpec(const NodeSpec&) = default;
+  NodeSpec(NodeSpec&&) = default;
+  NodeSpec& operator=(NodeSpec&&) = default;
+  NodeSpec& operator=(const NodeSpec& other) {
+    static_assert(std::is_nothrow_move_assignable_v<NodeSpec>,
+                  "NodeSpec assignment requires a nothrow move-assignable Run");
+    return *this = NodeSpec(other);
   }
 
   NodeSpec& Description(std::string desc) & {
@@ -991,14 +835,12 @@ class NodeSpec {
 
     def.config_fields = MergedFields();
 
-    if constexpr (!std::is_same_v<ModelsT, NoModels>) {
-      for (const auto& b : models_.Bindings()) {
-        def.model_dependencies.push_back(NodeModelDependency{
-            b->SlotName(),
-            b->ModelType(),
-            b->ConfigField(),
-        });
-      }
+    for (const auto& b : models_.Bindings()) {
+      def.model_dependencies.push_back(NodeModelDependency{
+          b->SlotName(),
+          b->ModelType(),
+          b->ConfigField(),
+      });
     }
 
     def.validate_config =
@@ -1101,18 +943,15 @@ class AuthorNode<NodeSpec<InputsT, OutputBatchT, ParamsT, ModelsT, RunFnT>>
     if (!spec_.Output().BindPorts(init_ctx)) return false;
     resources_ = SessionResources(session_ctx);
 
-    const auto& normalized = config;
-
     binding_facts_ = MakeBindingFacts(init_ctx);
 
     std::string err;
-    auto parsed = spec_.ParametersSpec().ParseNormalized(normalized,
-                                                         binding_facts_, &err);
+    auto parsed =
+        spec_.ParametersSpec().ParseNormalized(config, binding_facts_, &err);
     if (!parsed) {
       return init_ctx.Fail(err.empty() ? "Invalid node configuration" : err);
     }
-    if (!spec_.Models().BindModels(init_ctx, session_ctx, normalized, &models_,
-                                   &err)) {
+    if (!spec_.Models().BindModels(init_ctx, session_ctx, &models_, &err)) {
       return init_ctx.Fail(err.empty() ? "Failed to bind models" : err);
     }
     if (!spec_.ValidateBoundModels(*parsed, models_, &err))

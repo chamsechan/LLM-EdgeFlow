@@ -127,8 +127,6 @@ int OperatorConfigResolver::Resolve(
     out_diagnostic->code = code;
     out_diagnostic->path = path;
     out_diagnostic->message = message;
-
-    out_diagnostic->pipeline_diagnostic.reset();
   };
 
   try {

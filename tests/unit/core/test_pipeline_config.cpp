@@ -27,10 +27,11 @@ Json ParsingExample() {
              {"depends_on", {"first"}}}}}};
 }
 
-TEST(PipelineParsingTest, PreservesExplicitValuesAndDefaultsWithSourceIndices) {
+TEST(PipelineParsingTest,
+     SuccessfulParsesPreserveFieldsAndReplacePreviousState) {
   ParsedPipelineConfig parsed;
   PipelineDiagnostic diagnostic;
-  const auto root = ParsingExample();
+  auto root = ParsingExample();
   ASSERT_TRUE(ParsePipelineConfig(root, &parsed, &diagnostic));
   EXPECT_EQ(diagnostic.code, error::kOk);
   EXPECT_EQ(parsed.max_parallel_workers, 1u);
@@ -55,12 +56,14 @@ TEST(PipelineParsingTest, PreservesExplicitValuesAndDefaultsWithSourceIndices) {
   EXPECT_EQ(parsed.nodes[1].ports.inputs.at("text"), "first.text");
   EXPECT_EQ(parsed.nodes[1].depends_on, std::vector<std::string>{"first"});
   EXPECT_EQ(root, ParsingExample());
-}
-
-TEST(PipelineParsingTest, SuccessfulParseReplacesTheWholePreviousResult) {
-  ParsedPipelineConfig parsed;
-  PipelineDiagnostic diagnostic;
-  ASSERT_TRUE(ParsePipelineConfig(ParsingExample(), &parsed, &diagnostic));
+  root["models"][0]["file"] = "../unresolved/model.bin";
+  root["models"][0]["params"] = {{"options", {{"nested", {1, 2}}}}};
+  root["models"][0]["backend"]["params"] = {{"device", "example"}};
+  ASSERT_TRUE(ParsePipelineConfig(root, &parsed, nullptr));
+  EXPECT_EQ(parsed.models[0].model_file, "../unresolved/model.bin");
+  EXPECT_EQ(parsed.models[0].model_params, root["models"][0]["params"]);
+  EXPECT_EQ(parsed.models[0].backend_params,
+            root["models"][0]["backend"]["params"]);
   diagnostic = {error::kFieldRange, "/stale", "stale"};
   ASSERT_TRUE(ParsePipelineConfig(
       {{"max_parallel_workers", 64},
@@ -76,120 +79,96 @@ TEST(PipelineParsingTest, SuccessfulParseReplacesTheWholePreviousResult) {
   EXPECT_TRUE(diagnostic.message.empty());
 }
 
-struct InvalidStructure {
-  const char* name;
-  const char* operation;
-  const char* changed_path;
-  Json value;
-  int code;
-  const char* path;
-};
-
-TEST(PipelineParsingTest, NamedStructuralChangesFailAtTheirOwnedField) {
-  const std::vector<InvalidStructure> cases = {
-      {"root is array", "replace", "", Json::array(), error::kRootType, "/"},
-      {"unknown root field", "add", "/legacy", true, error::kUnknownField,
-       "/legacy"},
-      {"comment type", "replace", "/comment", 1, error::kFieldType, "/comment"},
-      {"worker type", "add", "/max_parallel_workers", 1.5, error::kFieldType,
-       "/max_parallel_workers"},
-      {"worker below minimum", "add", "/max_parallel_workers", 0,
-       error::kFieldRange, "/max_parallel_workers"},
-      {"worker above maximum", "add", "/max_parallel_workers", 65,
-       error::kFieldRange, "/max_parallel_workers"},
-      {"models container", "replace", "/models", Json::object(),
-       error::kFieldType, "/models"},
-      {"model item", "replace", "/models/0", 1, error::kFieldType, "/models/0"},
-      {"unknown model field", "add", "/models/0/legacy", true,
-       error::kUnknownField, "/models/0/legacy"},
-      {"missing model category", "remove", "/models/0/type", nullptr,
-       error::kMissingField, "/models/0/type"},
-      {"missing model name", "remove", "/models/0/name", nullptr,
-       error::kMissingField, "/models/0/name"},
-      {"missing model file", "remove", "/models/0/file", nullptr,
-       error::kMissingField, "/models/0/file"},
-      {"empty model file", "replace", "/models/0/file", "", error::kFieldRange,
-       "/models/0/file"},
-      {"model file type", "replace", "/models/0/file", false, error::kFieldType,
-       "/models/0/file"},
-      {"empty model name", "replace", "/models/0/name", "", error::kFieldRange,
-       "/models/0/name"},
-      {"missing backend", "remove", "/models/0/backend", nullptr,
-       error::kMissingField, "/models/0/backend"},
-      {"backend container", "replace", "/models/0/backend", Json::array(),
-       error::kFieldType, "/models/0/backend"},
-      {"missing backend type", "remove", "/models/0/backend/type", nullptr,
-       error::kMissingField, "/models/0/backend/type"},
-      {"empty backend type", "replace", "/models/0/backend/type", "",
-       error::kFieldRange, "/models/0/backend/type"},
-      {"unknown backend field", "add", "/models/0/backend/legacy", 1,
-       error::kUnknownField, "/models/0/backend/legacy"},
-      {"model params container", "add", "/models/0/params", Json::array(),
-       error::kFieldType, "/models/0/params"},
-      {"backend params container", "add", "/models/0/backend/params", 2,
-       error::kFieldType, "/models/0/backend/params"},
-      {"missing pipeline", "remove", "/pipeline", nullptr, error::kMissingField,
-       "/pipeline"},
-      {"pipeline container", "replace", "/pipeline", Json::object(),
-       error::kFieldType, "/pipeline"},
-      {"empty pipeline", "replace", "/pipeline", Json::array(),
-       error::kFieldRange, "/pipeline"},
-      {"node item", "replace", "/pipeline/1", "node", error::kFieldType,
-       "/pipeline/1"},
-      {"unknown node field", "add", "/pipeline/1/outputs", Json::object(),
-       error::kUnknownField, "/pipeline/1/outputs"},
-      {"missing node name", "remove", "/pipeline/1/name", nullptr,
-       error::kMissingField, "/pipeline/1/name"},
-      {"missing node type", "remove", "/pipeline/1/type", nullptr,
-       error::kMissingField, "/pipeline/1/type"},
-      {"empty node type", "replace", "/pipeline/1/type", "", error::kFieldRange,
-       "/pipeline/1/type"},
-      {"node name type", "replace", "/pipeline/1/name", 3, error::kFieldType,
-       "/pipeline/1/name"},
-      {"empty node name", "replace", "/pipeline/1/name", "", error::kFieldRange,
-       "/pipeline/1/name"},
-      {"reserved input name", "replace", "/pipeline/1/name", "input",
-       error::kInvalidNodeName, "/pipeline/1/name"},
-      {"reserved output name", "replace", "/pipeline/1/name", "output",
-       error::kInvalidNodeName, "/pipeline/1/name"},
-      {"dotted node name", "replace", "/pipeline/1/name", "a.b",
-       error::kInvalidNodeName, "/pipeline/1/name"},
-      {"duplicate node name", "replace", "/pipeline/1/name", "first",
-       error::kDuplicateNodeName, "/pipeline/1/name"},
-      {"node params container", "replace", "/pipeline/1/params", false,
-       error::kFieldType, "/pipeline/1/params"},
-      {"inputs container", "replace", "/pipeline/1/inputs", Json::array(),
-       error::kFieldType, "/pipeline/1/inputs"},
-      {"input reference type", "replace", "/pipeline/1/inputs/text", 4,
-       error::kFieldType, "/pipeline/1/inputs/text"},
-      {"dependencies container", "replace", "/pipeline/1/depends_on", "first",
-       error::kFieldType, "/pipeline/1/depends_on"},
-      {"dependency item type", "replace", "/pipeline/1/depends_on/0", 5,
-       error::kFieldType, "/pipeline/1/depends_on/0"},
-      {"empty dependency", "replace", "/pipeline/1/depends_on/0", "",
-       error::kFieldRange, "/pipeline/1/depends_on/0"},
-  };
-  for (const auto& example : cases) {
-    SCOPED_TRACE(example.name);
+TEST(PipelineParsingTest, StructuralErrorsIdentifyTheFirstInvalidField) {
+  auto reject = [](const Json& input, int code, const std::string& path) {
+    SCOPED_TRACE(input.dump());
     ParsedPipelineConfig parsed;
     ASSERT_TRUE(ParsePipelineConfig(ParsingExample(), &parsed));
-    Json operation = {{"op", example.operation},
-                      {"path", example.changed_path}};
-    if (std::string(example.operation) != "remove")
-      operation["value"] = example.value;
-    const auto invalid = ParsingExample().patch(Json::array({operation}));
-    PipelineDiagnostic diagnostic;
-    EXPECT_FALSE(ParsePipelineConfig(invalid, &parsed, &diagnostic));
-    EXPECT_EQ(diagnostic.code, example.code) << diagnostic.message;
-    EXPECT_EQ(diagnostic.path, example.path);
-    // 前面的条目已解析后再失败时，不得发布部分状态。
-    EXPECT_EQ(parsed.max_parallel_workers, 1u);
     ASSERT_EQ(parsed.models.size(), 1u);
-    EXPECT_EQ(parsed.models[0].model_name, "generator");
     ASSERT_EQ(parsed.nodes.size(), 2u);
+    parsed.max_parallel_workers = 12;
+    parsed.models[0].model_name = "previous_model";
+    parsed.models[0].model_params = {{"retained", true}};
+    parsed.nodes[0].name = "previous_node";
+    PipelineDiagnostic diagnostic;
+    EXPECT_FALSE(ParsePipelineConfig(input, &parsed, &diagnostic));
+    EXPECT_EQ(diagnostic.code, code) << diagnostic.message;
+    EXPECT_EQ(diagnostic.path, path);
+    EXPECT_EQ(parsed.max_parallel_workers, 12u);
+    ASSERT_EQ(parsed.models.size(), 1u);
+    EXPECT_EQ(parsed.models[0].model_name, "previous_model");
+    EXPECT_EQ(parsed.models[0].model_params, (Json{{"retained", true}}));
+    ASSERT_EQ(parsed.nodes.size(), 2u);
+    EXPECT_EQ(parsed.nodes[0].name, "previous_node");
     EXPECT_EQ(parsed.nodes[1].name, "second");
-    EXPECT_EQ(parsed.nodes[1].params, Json({{"limit", 7}}));
+    EXPECT_EQ(parsed.nodes[1].params, (Json{{"limit", 7}}));
+    EXPECT_EQ(parsed.nodes[1].depends_on, std::vector<std::string>{"first"});
+  };
+  struct InvalidField {
+    const char* path;
+    Json value;
+    int code;
+  };
+  const InvalidField cases[] = {
+      {"/a~1b~0c", true, error::kUnknownField},
+      {"/", true, error::kUnknownField},
+      {"/comment", 1, error::kFieldType},
+      {"/max_parallel_workers", 1.5, error::kFieldType},
+      {"/max_parallel_workers", 0, error::kFieldRange},
+      {"/max_parallel_workers", 65, error::kFieldRange},
+      {"/models", Json::object(), error::kFieldType},
+      {"/models/0", 1, error::kFieldType},
+      {"/models/0/a~1b~0c", true, error::kUnknownField},
+      {"/models/0/", true, error::kUnknownField},
+      {"/models/0/file", "", error::kFieldRange},
+      {"/models/0/file", false, error::kFieldType},
+      {"/models/0/name", "", error::kFieldRange},
+      {"/models/0/backend", Json::array(), error::kFieldType},
+      {"/models/0/backend/type", "", error::kFieldRange},
+      {"/models/0/backend/a~1b~0c", true, error::kUnknownField},
+      {"/models/0/backend/", true, error::kUnknownField},
+      {"/models/0/params", Json::array(), error::kFieldType},
+      {"/models/0/backend/params", 2, error::kFieldType},
+      {"/pipeline", Json::object(), error::kFieldType},
+      {"/pipeline", Json::array(), error::kFieldRange},
+      {"/pipeline/1", "node", error::kFieldType},
+      {"/pipeline/1/a~1b~0c", true, error::kUnknownField},
+      {"/pipeline/1/", true, error::kUnknownField},
+      {"/pipeline/1/type", "", error::kFieldRange},
+      {"/pipeline/1/name", 3, error::kFieldType},
+      {"/pipeline/1/name", "", error::kFieldRange},
+      {"/pipeline/1/name", "input", error::kInvalidNodeName},
+      {"/pipeline/1/name", "output", error::kInvalidNodeName},
+      {"/pipeline/1/name", "a.b", error::kInvalidNodeName},
+      {"/pipeline/1/name", "first", error::kDuplicateNodeName},
+      {"/pipeline/1/params", false, error::kFieldType},
+      {"/pipeline/1/inputs", Json::array(), error::kFieldType},
+      {"/pipeline/1/inputs/text", 4, error::kFieldType},
+      {"/pipeline/1/depends_on", "first", error::kFieldType},
+      {"/pipeline/1/depends_on/0", 5, error::kFieldType},
+      {"/pipeline/1/depends_on/0", "", error::kFieldRange},
+  };
+  for (const auto& example : cases) {
+    auto input = ParsingExample();
+    input[Json::json_pointer(example.path)] = example.value;
+    reject(input, example.code, example.path);
   }
+  for (const auto* field :
+       {"/models/0/type", "/models/0/name", "/models/0/file",
+        "/models/0/backend", "/models/0/backend/type", "/pipeline",
+        "/pipeline/1/name", "/pipeline/1/type"}) {
+    auto input = ParsingExample();
+    const Json::json_pointer path(field);
+    input[path.parent_pointer()].erase(path.back());
+    reject(input, error::kMissingField, field);
+  }
+  reject(Json::array(), error::kRootType, "/");
+  reject({{"comment", 42}}, error::kFieldType, "/comment");
+  reject({{"pipeline", {{{"type", 7}}}}}, error::kFieldType,
+         "/pipeline/0/type");
+  auto duplicate = ParsingExample();
+  duplicate["models"].push_back(duplicate["models"][0]);
+  reject(duplicate, error::kDuplicateModelName, "/models/1/name");
 }
 
 TEST(PipelineParsingTest, AcceptsMaximumArraySizesAndRejectsTheNextEntry) {
@@ -226,52 +205,6 @@ TEST(PipelineParsingTest, AcceptsMaximumArraySizesAndRejectsTheNextEntry) {
     EXPECT_EQ(parsed.models.size(), 64u);
     EXPECT_EQ(parsed.nodes.size(), 256u);
   }
-}
-
-TEST(PipelineParsingTest,
-     LateFailureDoesNotPublishAnySuccessfullyParsedPrefix) {
-  ParsedPipelineConfig parsed;
-  ASSERT_TRUE(ParsePipelineConfig(ParsingExample(), &parsed));
-  auto root = ParsingExample();
-  root["max_parallel_workers"] = 12;
-  root["models"][0]["name"] = "new_model";
-  root["models"][0]["params"] = {{"changed", true}};
-  root["pipeline"][0]["name"] = "new_first";
-  root["pipeline"][1]["depends_on"] = {false};
-  PipelineDiagnostic diagnostic;
-  ASSERT_FALSE(ParsePipelineConfig(root, &parsed, &diagnostic));
-  EXPECT_EQ(diagnostic.code, error::kFieldType);
-  EXPECT_EQ(diagnostic.path, "/pipeline/1/depends_on/0");
-  EXPECT_EQ(parsed.max_parallel_workers, 1u);
-  ASSERT_EQ(parsed.models.size(), 1u);
-  EXPECT_EQ(parsed.models[0].model_name, "generator");
-  EXPECT_EQ(parsed.models[0].model_params, Json::object());
-  ASSERT_EQ(parsed.nodes.size(), 2u);
-  EXPECT_EQ(parsed.nodes[0].name, "first");
-  EXPECT_EQ(parsed.nodes[1].depends_on, std::vector<std::string>{"first"});
-}
-
-TEST(PipelineParsingTest, RejectsDuplicateModelInstanceNames) {
-  auto root = ParsingExample();
-  root["models"].push_back(root["models"][0]);
-  ParsedPipelineConfig parsed;
-  PipelineDiagnostic diagnostic;
-  EXPECT_FALSE(ParsePipelineConfig(root, &parsed, &diagnostic));
-  EXPECT_EQ(diagnostic.code, error::kDuplicateModelName);
-  EXPECT_EQ(diagnostic.path, "/models/1/name");
-}
-
-TEST(PipelineParsingTest, PreservesOpaqueParametersAndUnresolvedFiles) {
-  auto root = ParsingExample();
-  root["models"][0]["file"] = "../unresolved/model.bin";
-  root["models"][0]["params"] = {{"options", {{"nested", {1, 2}}}}};
-  root["models"][0]["backend"]["params"] = {{"device", "example"}};
-  ParsedPipelineConfig parsed;
-  ASSERT_TRUE(ParsePipelineConfig(root, &parsed, nullptr));
-  EXPECT_EQ(parsed.models[0].model_file, "../unresolved/model.bin");
-  EXPECT_EQ(parsed.models[0].model_params, root["models"][0]["params"]);
-  EXPECT_EQ(parsed.models[0].backend_params,
-            root["models"][0]["backend"]["params"]);
 }
 
 TEST(PipelineParsingTest, ReportsNullDestinationAndAllowsNoDiagnostic) {

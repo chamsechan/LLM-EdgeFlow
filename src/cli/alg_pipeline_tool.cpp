@@ -197,9 +197,11 @@ Json ResolveConf(const std::string& file, const std::string& root,
     const auto definition = PipelineCatalog::FindModel(model.impl_name);
     const auto backend = PipelineCatalog::FindBackend(model.backend_type);
     std::shared_ptr<const ParameterValues> model_values, backend_values;
-    if (!definition->params.Parse(model.model_params, &model_values, &error))
+    if (!definition->params.ParseNormalized(model.model_params, &model_values,
+                                            &error))
       return ToolError(error::kInvalidCombination, error, path + "/params");
-    if (!backend->params.Parse(model.backend_params, &backend_values, &error))
+    if (!backend->params.ParseNormalized(model.backend_params, &backend_values,
+                                         &error))
       return ToolError(error::kInvalidCombination, error,
                        path + "/backend/params");
     // 显示准备后的值，包括依赖其他字段的默认值。
