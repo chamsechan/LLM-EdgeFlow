@@ -1,7 +1,6 @@
 #include "engine/backends/inferlet/inferlet_backend.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -20,6 +19,7 @@
 #include "contracts/parameters.h"
 #include "contracts/path_utils.h"
 #include "engine/backend_registry.h"
+#include "engine/backends/execution_target.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
 
@@ -35,9 +35,7 @@ bool IsCpuPlatform(const std::string& platform) { return platform == "CPU"; }
 
 bool ValidateExecutionTarget(const ExecutionTarget& target,
                              std::string* diagnostic) {
-  std::string platform = target.platform;
-  std::transform(platform.begin(), platform.end(), platform.begin(),
-                 [](unsigned char c) { return std::toupper(c); });
+  const std::string platform = NormalizeExecutionPlatform(target.platform);
   if (!platform.empty() && platform != "UNKNOWN" && !IsCpuPlatform(platform)) {
     SetDiagnosticNoexcept(
         diagnostic,

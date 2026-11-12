@@ -1,5 +1,7 @@
 #include "engine/text/utf8.h"
 
+#include <cassert>
+
 namespace llm_edgeflow {
 namespace utf8 {
 
@@ -46,6 +48,26 @@ size_t DecodeCodePoint(const char* data, size_t length,
   return 0;
 }
 
+void AppendCodePoint(uint32_t code_point, std::string* text) {
+  assert(text && code_point <= 0x10FFFF &&
+         !(code_point >= 0xD800 && code_point <= 0xDFFF));
+  if (code_point < 0x80) {
+    text->push_back(static_cast<char>(code_point));
+  } else if (code_point < 0x800) {
+    text->push_back(static_cast<char>(0xC0 | (code_point >> 6)));
+    text->push_back(static_cast<char>(0x80 | (code_point & 63)));
+  } else if (code_point < 0x10000) {
+    text->push_back(static_cast<char>(0xE0 | (code_point >> 12)));
+    text->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
+    text->push_back(static_cast<char>(0x80 | (code_point & 63)));
+  } else {
+    text->push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+    text->push_back(static_cast<char>(0x80 | ((code_point >> 12) & 63)));
+    text->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
+    text->push_back(static_cast<char>(0x80 | (code_point & 63)));
+  }
+}
+
 bool BuildCodePointBoundaries(std::string_view text,
                               std::vector<size_t>* boundaries,
                               size_t* invalid_offset) {
@@ -73,43 +95,18 @@ bool BuildCodePointBoundaries(std::string_view text,
 }
 
 void StripIncompleteSuffix(std::string* text) noexcept {
-  if (!text || text->empty()) return;
-  try {
-    const size_t size = text->size();
-    size_t continuation_count = 0;
-    while (continuation_count < size &&
-           (static_cast<unsigned char>((*text)[size - continuation_count - 1]) &
-            0xC0U) == 0x80U) {
-      ++continuation_count;
+  if (!text) return;
+  while (!text->empty()) {
+    size_t start = text->size() - 1;
+    while (start > 0 &&
+           (static_cast<unsigned char>((*text)[start]) & 0xC0U) == 0x80U) {
+      --start;
     }
-    if (continuation_count == size) {
-      text->clear();
-      return;
-    }
-
-    const size_t lead_position = size - continuation_count - 1;
-    const unsigned char lead =
-        static_cast<unsigned char>((*text)[lead_position]);
-    size_t expected = 1;
-    if ((lead & 0x80U) == 0) {
-      expected = 1;
-    } else if ((lead & 0xE0U) == 0xC0U) {
-      expected = 2;
-    } else if ((lead & 0xF0U) == 0xE0U) {
-      expected = 3;
-    } else if ((lead & 0xF8U) == 0xF0U) {
-      expected = 4;
-    } else {
-      text->resize(lead_position);
-      return;
-    }
-    if (expected == 1 && continuation_count > 0) {
-      text->resize(lead_position + 1);
-    } else if (continuation_count + 1 != expected) {
-      text->resize(lead_position);
-    }
-  } catch (...) {
-    text->clear();
+    uint32_t code_point = 0;
+    const size_t consumed = DecodeCodePoint(text->data() + start,
+                                            text->size() - start, &code_point);
+    text->erase(text->begin() + (start + consumed), text->end());
+    if (consumed != 0) return;
   }
 }
 

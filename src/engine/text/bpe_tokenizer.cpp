@@ -12,6 +12,7 @@
 #include <cstring>
 #include <exception>
 #include <limits>
+#include <queue>
 
 #include "contracts/diagnostic.h"
 #include "contracts/error_codes.h"
@@ -120,6 +121,24 @@ uint64_t AlignUp4(uint64_t value) noexcept {
 }
 
 /**
+ * @brief 在已按 predicate 分区的 [first, last) 中查找首个 false 的索引。
+ * 所有索引均满足 predicate 时返回 last。
+ */
+template <typename Predicate>
+size_t PartitionPointIndex(size_t first, size_t last,
+                           Predicate predicate) noexcept {
+  while (first < last) {
+    const size_t middle = first + (last - first) / 2;
+    if (predicate(middle)) {
+      first = middle + 1;
+    } else {
+      last = middle;
+    }
+  }
+  return first;
+}
+
+/**
  * @brief CRC-32/IEEE，与 Python zlib.crc32
  * 一致。只用来发现意外损坏，不是认证手段。
  */
@@ -152,9 +171,9 @@ bool HostIsLittleEndian() noexcept {
 /**
  * @brief FNV-1a 64 位，取低位定位；与生成工具一致。
  */
-uint64_t HashBytes(const char* bytes, size_t size) noexcept {
+uint64_t HashBytes(std::string_view bytes) noexcept {
   uint64_t hash = UINT64_C(14695981039346656037);
-  for (size_t i = 0; i < size; ++i) {
+  for (size_t i = 0; i < bytes.size(); ++i) {
     hash =
         (hash ^ static_cast<unsigned char>(bytes[i])) * UINT64_C(1099511628211);
   }
@@ -187,24 +206,6 @@ bool IsValidUtf8(std::string_view text) noexcept {
     offset += consumed;
   }
   return true;
-}
-
-void AppendCodePoint(std::string* out, uint32_t code_point) {
-  if (code_point < 0x80) {
-    out->push_back(static_cast<char>(code_point));
-  } else if (code_point < 0x800) {
-    out->push_back(static_cast<char>(0xC0 | (code_point >> 6)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  } else if (code_point < 0x10000) {
-    out->push_back(static_cast<char>(0xE0 | (code_point >> 12)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  } else {
-    out->push_back(static_cast<char>(0xF0 | (code_point >> 18)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 12) & 63)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  }
 }
 
 /**
@@ -252,12 +253,12 @@ void AppendLossyUtf8(std::string_view bytes, std::string* out) {
 /**
  * @brief 把 token 文本中的 U+2581 换成空格，其余字节原样追加。
  */
-void AppendWithSpaces(const char* piece, size_t size, std::string* out) {
+void AppendWithSpaces(std::string_view piece, std::string* out) {
   size_t begin = 0;
-  for (size_t i = 0; i + kMetaspaceBytes <= size;) {
+  for (size_t i = 0; i + kMetaspaceBytes <= piece.size();) {
     if (piece[i] == kMetaspace[0] && piece[i + 1] == kMetaspace[1] &&
         piece[i + 2] == kMetaspace[2]) {
-      out->append(piece + begin, i - begin);
+      out->append(piece.substr(begin, i - begin));
       out->append(1, ' ');
       i += kMetaspaceBytes;
       begin = i;
@@ -265,7 +266,7 @@ void AppendWithSpaces(const char* piece, size_t size, std::string* out) {
       ++i;
     }
   }
-  out->append(piece + begin, size - begin);
+  out->append(piece.substr(begin));
 }
 
 int HexValue(char c) noexcept {
@@ -380,66 +381,22 @@ class BpeTokenizer::Impl final {
     int32_t id;
   };
 
-  // 候选合并的最大堆：优先级高者在前，同优先级取最左。自己实现而不用
-  // std::push_heap / pop_heap，是因为热路径上标准库的堆函数在带
-  // AddressSanitizer 的构建里每次调用都很慢。
-  class CandidateHeap {
-   public:
-    bool empty() const noexcept { return size_ == 0; }
-    void Push(const Candidate& candidate) {
-      if (size_ == items_.size()) items_.resize(items_.size() * 2);
-      size_t child = size_++;
-      while (child != 0) {
-        const size_t parent = (child - 1) / 2;
-        if (!Higher(candidate, items_[parent])) break;
-        items_[child] = items_[parent];
-        child = parent;
-      }
-      items_[child] = candidate;
-    }
-    void Pop(Candidate* top) noexcept {
-      *top = items_[0];
-      const size_t last = --size_;
-      if (last == 0) return;
-      size_t parent = 0;
-      for (size_t child = 1; child < last; child = parent * 2 + 1) {
-        if (child + 1 < last && Higher(items_[child + 1], items_[child])) {
-          ++child;
-        }
-        if (!Higher(items_[child], items_[last])) break;
-        items_[parent] = items_[child];
-        parent = child;
-      }
-      items_[parent] = items_[last];
-    }
-
-   private:
+  struct CandidateLowerPriority {
     /**
-     * @brief 依次比较：优先级、左段码点数、右段码点数（都是越大越先）、合成
-     * token 的 ID（越小越先）、位置（越靠左越先）。rank
-     * 模式下相同排名意味着相同的
-     * 合并规则，后面几项必然相同，所以只有最后的“最左”起作用。
+     * @brief 优先级、左段码点数、右段码点数越大越先，合成 token 的 ID
+     * 和位置越小越先。rank 模式下相同排名对应同一合并规则，后续比较
+     * 仅位置起作用。
+     * @return a 应晚于 b 合并时返回 true。
      */
-    static bool Higher(const Candidate& a, const Candidate& b) noexcept {
-      if (a.priority != b.priority) return a.priority > b.priority;
-      if (a.left_chars != b.left_chars) return a.left_chars > b.left_chars;
-      if (a.right_chars != b.right_chars) return a.right_chars > b.right_chars;
-      if (a.id != b.id) return a.id < b.id;
-      return a.left < b.left;
+    bool operator()(const Candidate& a, const Candidate& b) const noexcept {
+      if (a.priority != b.priority) return a.priority < b.priority;
+      if (a.left_chars != b.left_chars) return a.left_chars < b.left_chars;
+      if (a.right_chars != b.right_chars) return a.right_chars < b.right_chars;
+      if (a.id != b.id) return a.id > b.id;
+      return a.left > b.left;
     }
-    std::vector<Candidate> items_ = std::vector<Candidate>(16);
-    size_t size_ = 0;
   };
 
-  /**
-   * @brief 热路径用指针和长度，不构造 string_view（原因同 Lookup）。
-   */
-  const char* PieceData(uint32_t id) const noexcept {
-    return pool_ + offsets_[id];
-  }
-  size_t PieceSize(uint32_t id) const noexcept {
-    return offsets_[id + 1] - offsets_[id];
-  }
   std::string_view Piece(uint32_t id) const noexcept {
     return std::string_view(pool_ + offsets_[id],
                             offsets_[id + 1] - offsets_[id]);
@@ -456,13 +413,8 @@ class BpeTokenizer::Impl final {
     std::memcpy(&value, scores_ + id, sizeof(value));
     return value;
   }
-  /**
-   * @brief 热路径上的函数不接受 string_view 参数：在带 AddressSanitizer
-   * 的构建里，对按值传入的参数调用成员函数会使每次调用都很慢。
-   */
-  int32_t Lookup(const char* bytes, size_t size) const noexcept;
-  int32_t MatchAddedToken(const char* text, size_t size,
-                          size_t* length) const noexcept;
+  int32_t Lookup(std::string_view bytes) const noexcept;
+  int32_t MatchAddedToken(std::string_view text, size_t* length) const noexcept;
   /**
    * @brief 给出左右相邻符号合并的候选；没有可用合并时返回 false。
    */
@@ -664,9 +616,7 @@ bool BpeTokenizer::Impl::Init(std::unique_ptr<MappedFile> file,
   if (occupied != hash_entries) return fail("hash entry count differs");
   for (uint32_t i = 0; i < hash_slots_; ++i) {
     if (slots_[i] != 0 &&
-        Lookup(pool_ + offsets_[slots_[i] - 1],
-               offsets_[slots_[i]] - offsets_[slots_[i] - 1]) !=
-            static_cast<int32_t>(slots_[i] - 1)) {
+        Lookup(Piece(slots_[i] - 1)) != static_cast<int32_t>(slots_[i] - 1)) {
       return fail("hash table does not index its tokens");
     }
   }
@@ -779,18 +729,17 @@ bool BpeTokenizer::Impl::Init(std::unique_ptr<MappedFile> file,
   return true;
 }
 
-int32_t BpeTokenizer::Impl::Lookup(const char* bytes,
-                                   size_t size) const noexcept {
+int32_t BpeTokenizer::Impl::Lookup(std::string_view bytes) const noexcept {
   uint32_t position =
-      static_cast<uint32_t>(HashBytes(bytes, size)) & (hash_slots_ - 1);
+      static_cast<uint32_t>(HashBytes(bytes)) & (hash_slots_ - 1);
   // 加载时已确认存在空槽，探测次数有上界。
   for (uint32_t probes = 0; probes < hash_slots_;
        ++probes, position = (position + 1) & (hash_slots_ - 1)) {
     const uint32_t value = slots_[position];
     if (value == 0) return -1;
     const uint32_t begin = offsets_[value - 1];
-    if (offsets_[value] - begin == size &&
-        std::memcmp(pool_ + begin, bytes, size) == 0) {
+    if (offsets_[value] - begin == bytes.size() &&
+        std::memcmp(pool_ + begin, bytes.data(), bytes.size()) == 0) {
       return static_cast<int32_t>(value - 1);
     }
   }
@@ -800,9 +749,9 @@ int32_t BpeTokenizer::Impl::Lookup(const char* bytes,
 /**
  * @brief 在 text 开头做最长匹配；匹配失败返回 -1。
  */
-int32_t BpeTokenizer::Impl::MatchAddedToken(const char* text, size_t size,
+int32_t BpeTokenizer::Impl::MatchAddedToken(std::string_view text,
                                             size_t* length) const noexcept {
-  if (size == 0) return -1;
+  if (text.empty()) return -1;
   uint32_t node = trie_root_[static_cast<unsigned char>(text[0])];
   int32_t id = -1;
   for (size_t depth = 1; node != 0; ++depth) {
@@ -811,22 +760,14 @@ int32_t BpeTokenizer::Impl::MatchAddedToken(const char* text, size_t size,
       id = static_cast<int32_t>(current[2] - 1);
       *length = depth;
     }
-    if (depth == size) break;
+    if (depth == text.size()) break;
     const uint32_t label = static_cast<unsigned char>(text[depth]);
-    uint32_t low = current[0];
-    uint32_t high = current[0] + current[1];
-    while (low < high) {
-      const uint32_t middle = low + (high - low) / 2;
-      if (trie_edges_[size_t{middle} * 2] < label) {
-        low = middle + 1;
-      } else {
-        high = middle;
-      }
-    }
-    node =
-        low < current[0] + current[1] && trie_edges_[size_t{low} * 2] == label
-            ? trie_edges_[size_t{low} * 2 + 1]
-            : 0;
+    const size_t low = PartitionPointIndex(
+        current[0], current[0] + current[1],
+        [&](size_t middle) { return trie_edges_[middle * 2] < label; });
+    node = low < current[0] + current[1] && trie_edges_[low * 2] == label
+               ? trie_edges_[low * 2 + 1]
+               : 0;
   }
   return id;
 }
@@ -841,7 +782,7 @@ bool BpeTokenizer::Impl::MakeCandidate(const char* word_data,
   const uint32_t size = a.size + b.size;
   if (size > max_token_bytes_) return false;
   // 两个相邻符号拼接后的字节正好是 word 中连续的一段。
-  const int32_t id = Lookup(word_data + a.start, size);
+  const int32_t id = Lookup(std::string_view(word_data + a.start, size));
   if (id < 0) return false;
   uint32_t priority = 0;
   if (merge_priority_ == kPriorityRank) {
@@ -877,25 +818,20 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
                                   std::vector<int32_t>* ids,
                                   const char** reason) const {
   if (word.empty()) return error::kOk;
-  // 符号数不超过字节数：先按字节数分配，填完后再收缩。
-  // 在带 AddressSanitizer 的构建里逐个 push_back 临时对象很慢，因此按下标写入。
-  std::vector<Symbol> symbols(word.size());
-  size_t count = 0;
-  const auto set_symbol = [&symbols](size_t index, size_t start, size_t size,
-                                     int32_t id) {
-    Symbol& symbol = symbols[index];
-    symbol.start = static_cast<uint32_t>(start);
-    symbol.size = static_cast<uint32_t>(size);
-    symbol.prev = static_cast<int32_t>(index) - 1;
-    symbol.next = static_cast<int32_t>(index) + 1;
-    symbol.id = id;
-    symbol.chars = 1;
+  std::vector<Symbol> symbols;
+  symbols.reserve(word.size());
+  const auto add_symbol = [&symbols](size_t start, size_t size, int32_t id) {
+    const auto index = static_cast<int32_t>(symbols.size());
+    symbols.push_back({static_cast<uint32_t>(start),
+                       static_cast<uint32_t>(size), index - 1, index + 1, id,
+                       1});
   };
   if (pre_tokenizer_ == kPreTokenizerByteLevelQwen2) {
-    for (; count < word.size(); ++count) {
-      set_symbol(count, count, 1,
-                 static_cast<int32_t>(
-                     units_[static_cast<unsigned char>(word[count]) * 2 + 1]));
+    for (size_t position = 0; position < word.size(); ++position) {
+      add_symbol(
+          position, 1,
+          static_cast<int32_t>(
+              units_[static_cast<unsigned char>(word[position]) * 2 + 1]));
     }
   } else {
     for (size_t position = 0; position < word.size();) {
@@ -910,16 +846,9 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
         }
       }
       // 在有序的 (码点, ID) 表里二分查找。
-      size_t low = 0;
-      size_t high = unit_count_;
-      while (low < high) {
-        const size_t middle = low + (high - low) / 2;
-        if (units_[middle * 2] < code_point) {
-          low = middle + 1;
-        } else {
-          high = middle;
-        }
-      }
+      const size_t low = PartitionPointIndex(
+          0, unit_count_,
+          [&](size_t middle) { return units_[middle * 2] < code_point; });
       int32_t id = -1;
       if (low < unit_count_ && units_[low * 2] == code_point) {
         id = static_cast<int32_t>(units_[low * 2 + 1]);
@@ -927,14 +856,14 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
         *reason = "Character is not in the tokenizer vocabulary";
         return error::kInvalidInput;
       }
-      set_symbol(count++, position, size, id);
+      add_symbol(position, size, id);
       position += size;
     }
   }
-  symbols.resize(count);
   symbols.back().next = -1;
 
-  CandidateHeap heap;
+  std::priority_queue<Candidate, std::vector<Candidate>, CandidateLowerPriority>
+      heap;
   Candidate candidate{};
   const auto add_candidate = [&](int32_t left, int32_t right) {
     if (left < 0 || right < 0 ||
@@ -942,14 +871,14 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
                        static_cast<uint32_t>(right), &candidate)) {
       return;
     }
-    heap.Push(candidate);
+    heap.push(candidate);
   };
   for (size_t i = 1; i < symbols.size(); ++i) {
     add_candidate(static_cast<int32_t>(i) - 1, static_cast<int32_t>(i));
   }
-  Candidate top{};
   while (!heap.empty()) {
-    heap.Pop(&top);
+    const Candidate top = heap.top();
+    heap.pop();
     Symbol& left = symbols[top.left];
     Symbol& right = symbols[top.right];
     // 任何一侧在候选产生后发生过合并，大小之和都会变化。
@@ -1021,7 +950,7 @@ int BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
     }
     scratch.reserve(capacity);
     for (uint32_t code_point : code_points)
-      AppendCodePoint(&scratch, code_point);
+      utf8::AppendCodePoint(code_point, &scratch);
     normalized = scratch;
   }
   if (normalized.size() > std::numeric_limits<uint32_t>::max()) {
@@ -1071,8 +1000,7 @@ int BpeTokenizer::Impl::Encode(std::string_view text, std::vector<int32_t>* ids,
       continue;
     }
     size_t length = 0;
-    const int32_t id =
-        MatchAddedToken(text.data() + i, text.size() - i, &length);
+    const int32_t id = MatchAddedToken(text.substr(i), &length);
     if (id < 0) {
       ++i;
       continue;
@@ -1113,10 +1041,10 @@ int BpeTokenizer::Impl::AppendTokenBytes(int32_t id, std::string* bytes,
     if (kind == kKindByteFallback) {
       bytes->push_back(ByteValue(token));
     } else {
-      AppendWithSpaces(PieceData(token), PieceSize(token), bytes);
+      AppendWithSpaces(Piece(token), bytes);
     }
   } else {
-    bytes->append(PieceData(token), PieceSize(token));
+    bytes->append(Piece(token));
   }
   return error::kOk;
 }
@@ -1141,8 +1069,7 @@ int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
     std::string bytes;
     for (int32_t id : ids) {
       const uint32_t token = static_cast<uint32_t>(id);
-      if (Kind(token) != kKindSpecial)
-        bytes.append(PieceData(token), PieceSize(token));
+      if (Kind(token) != kKindSpecial) bytes.append(Piece(token));
     }
     AppendLossyUtf8(bytes, text);
     return error::kOk;
@@ -1171,7 +1098,7 @@ int BpeTokenizer::Impl::Decode(const std::vector<int32_t>& ids,
       ++run_bytes;
     } else {
       flush_run();
-      AppendWithSpaces(PieceData(token), PieceSize(token), text);
+      AppendWithSpaces(Piece(token), text);
     }
   }
   flush_run();

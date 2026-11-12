@@ -86,27 +86,6 @@ inline bool ResolveConfigIo(const DemoOptions& options,
 }
 
 /**
- * @brief Operator 句柄 RAII 生命周期管理器
- */
-struct OperatorHandleGuard {
-  llm_edgeflow::operator_api::OperatorFunc ops;
-  void* handle = nullptr;
-
-  OperatorHandleGuard(llm_edgeflow::operator_api::OperatorFunc f, void* h)
-      : ops(f), handle(h) {}
-
-  ~OperatorHandleGuard() {
-    if (handle) {
-      ops.Destroy(handle);
-      handle = nullptr;
-    }
-  }
-
-  OperatorHandleGuard(const OperatorHandleGuard&) = delete;
-  OperatorHandleGuard& operator=(const OperatorHandleGuard&) = delete;
-};
-
-/**
  * @brief Control 必须显式提供命令号和 JSON 文件。
  */
 inline int ApplyOperatorControl(
@@ -258,7 +237,7 @@ inline int RunOperatorDemo(const DemoOptions& options) {
   const int create_ret =
       CreateOperatorInstance(options, "OperatorRunner", &ops, &handle);
   if (create_ret != 0) return create_ret;
-  OperatorHandleGuard guard(ops, handle);
+  std::unique_ptr<void, decltype(ops.Destroy)> guard(handle, ops.Destroy);
   const int control_ret = ApplyOperatorControl(options, ops, handle);
   if (control_ret != 0) return control_ret;
 

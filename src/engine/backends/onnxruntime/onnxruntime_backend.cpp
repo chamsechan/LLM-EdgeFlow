@@ -1,7 +1,5 @@
 #include "engine/backends/onnxruntime/onnxruntime_backend.h"
 
-#include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -13,6 +11,7 @@
 #include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "edgeflow/log.h"
+#include "engine/backends/execution_target.h"
 
 #ifdef HAVE_ONNXRUNTIME
 #include "onnxruntime_cxx_api.h"
@@ -272,17 +271,10 @@ bool InferBatchPolicy(const std::vector<TensorSpec>& inputs,
 
 namespace {
 
-std::string NormalizePlatform(std::string platform) {
-  std::transform(
-      platform.begin(), platform.end(), platform.begin(),
-      [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-  return platform;
-}
-
 bool ValidateExecutionTarget(const ExecutionTarget& target,
                              std::string* diagnostic) noexcept {
   try {
-    const std::string platform = NormalizePlatform(target.platform);
+    const std::string platform = NormalizeExecutionPlatform(target.platform);
     if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU") {
       SetDiagnosticNoexcept(
           diagnostic,

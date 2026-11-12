@@ -163,7 +163,7 @@ TEST_F(QwenSeedWarningTest, SupportedSeedsAndUnrequestedSeedsDoNotWarn) {
   }
 }
 
-TEST(QwenCausalLmModelTest, OnlyIncompleteUtf8SuffixIsRemoved) {
+TEST(QwenCausalLmModelTest, OnlyInvalidOrIncompleteUtf8SuffixIsRemoved) {
   struct Case {
     const char* name;
     std::string response;
@@ -174,6 +174,7 @@ TEST(QwenCausalLmModelTest, OnlyIncompleteUtf8SuffixIsRemoved) {
       {"incomplete two trailing bytes", std::string("A\xe4\xb8", 3), "A"},
       {"entirely incomplete", std::string("\xe4", 1), ""},
       {"empty generated response", "", ""},
+      {"complete character before stray continuation", "A你\x80", "A你"},
   };
   for (const auto& test : cases) {
     SCOPED_TRACE(test.name);

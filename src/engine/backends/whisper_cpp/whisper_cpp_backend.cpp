@@ -1,10 +1,9 @@
 #include "engine/backends/whisper_cpp/whisper_cpp_backend.h"
 
-#include <algorithm>
-#include <cctype>
 #include <exception>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -15,6 +14,7 @@
 #include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "engine/backend_registry.h"
+#include "engine/backends/execution_target.h"
 
 #ifdef HAVE_WHISPERCPP
 #include "whisper.h"
@@ -22,16 +22,6 @@
 
 namespace llm_edgeflow {
 namespace {
-
-std::string NormalizePlatform(std::string_view platform) {
-  std::string normalized;
-  normalized.reserve(platform.size());
-  for (char c : platform) {
-    normalized.push_back(
-        static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
-  }
-  return normalized;
-}
 
 #ifdef HAVE_WHISPERCPP
 struct Params {
@@ -132,18 +122,12 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
         return error::kInvalidState;
       }
 
-      whisper_state* state = whisper_init_state(ctx_);
+      std::unique_ptr<whisper_state, decltype(&whisper_free_state)> state(
+          whisper_init_state(ctx_), whisper_free_state);
       if (!state) {
         SetDiagnosticNoexcept(diagnostic, "Failed to initialize whisper_state");
         return error::kAllocationFailed;
       }
-
-      struct StateGuard {
-        whisper_state* s;
-        ~StateGuard() {
-          if (s) whisper_free_state(s);
-        }
-      } state_guard{state};
 
       auto params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
       params.n_threads = n_threads_;
@@ -170,9 +154,9 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
       params.debug_mode = false;
       params.tdrz_enable = false;
 
-      int ret =
-          whisper_full_with_state(ctx_, state, params, audio.pcm_data.data(),
-                                  static_cast<int>(n_samples));
+      int ret = whisper_full_with_state(ctx_, state.get(), params,
+                                        audio.pcm_data.data(),
+                                        static_cast<int>(n_samples));
       if (ret != 0) {
         SetDiagnosticNoexcept(
             diagnostic,
@@ -180,11 +164,11 @@ class WhisperCppSession final : public IAudioTranscriptionSession {
         return error::kInferenceFailed;
       }
 
-      int n_segments = whisper_full_n_segments_from_state(state);
+      int n_segments = whisper_full_n_segments_from_state(state.get());
       std::string accumulated;
       for (int i = 0; i < n_segments; ++i) {
         const char* seg_text =
-            whisper_full_get_segment_text_from_state(state, i);
+            whisper_full_get_segment_text_from_state(state.get(), i);
         if (seg_text) {
           accumulated.append(seg_text);
           if (accumulated.size() > options.max_output_bytes) {
@@ -250,7 +234,7 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     }
 
     const std::string platform =
-        NormalizePlatform(spec.execution_target.platform);
+        NormalizeExecutionPlatform(spec.execution_target.platform);
     if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU") {
       SetDiagnosticNoexcept(
           diagnostic,
@@ -290,24 +274,20 @@ std::shared_ptr<IBackendSession> WhisperCppBackend::Load(
     cparams.use_gpu = false;
     cparams.flash_attn = false;
 
-    whisper_context* raw_ctx = whisper_init_from_file_with_params_no_state(
-        spec.model_file.c_str(), cparams);
-    if (!raw_ctx) {
+    std::unique_ptr<whisper_context, decltype(&whisper_free)> context(
+        whisper_init_from_file_with_params_no_state(spec.model_file.c_str(),
+                                                    cparams),
+        whisper_free);
+    if (!context) {
       SetDiagnosticNoexcept(
           diagnostic,
           "Failed to load whisper model from file: " + spec.model_file);
       return nullptr;
     }
 
-    struct ContextGuard {
-      whisper_context* ctx = nullptr;
-      ~ContextGuard() {
-        if (ctx) whisper_free(ctx);
-      }
-    } context_guard{raw_ctx};
-
-    auto session = std::make_shared<WhisperCppSession>(raw_ctx, p.n_threads);
-    context_guard.ctx = nullptr;  // 所有权已成功转移
+    auto session =
+        std::make_shared<WhisperCppSession>(context.get(), p.n_threads);
+    context.release();  // 所有权已成功转移。
     return session;
 #endif
   } catch (const std::exception& e) {

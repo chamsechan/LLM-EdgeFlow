@@ -25,14 +25,9 @@ inline bool HasParentPathComponent(const std::filesystem::path& path) {
  */
 inline bool IsPathWithinRoot(const std::filesystem::path& root,
                              const std::filesystem::path& candidate) {
-  auto root_it = root.begin();
-  auto candidate_it = candidate.begin();
-  while (root_it != root.end() && candidate_it != candidate.end() &&
-         *root_it == *candidate_it) {
-    ++root_it;
-    ++candidate_it;
-  }
-  return root_it == root.end();
+  return std::mismatch(root.begin(), root.end(), candidate.begin(),
+                       candidate.end())
+             .first == root.end();
 }
 
 /**
