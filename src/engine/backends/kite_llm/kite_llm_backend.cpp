@@ -1,7 +1,6 @@
 #include "engine/backends/kite_llm/kite_llm_backend.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -20,6 +19,7 @@
 #include "contracts/parameters.h"
 #include "contracts/path_utils.h"
 #include "engine/backend_registry.h"
+#include "engine/backends/execution_target.h"
 #include "engine/text/utf8.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
 
@@ -35,9 +35,7 @@ bool IsCpuPlatform(const std::string& platform) { return platform == "CPU"; }
 
 bool ValidateExecutionTarget(const ExecutionTarget& target,
                              std::string* diagnostic) {
-  std::string platform = target.platform;
-  std::transform(platform.begin(), platform.end(), platform.begin(),
-                 [](unsigned char c) { return std::toupper(c); });
+  const std::string platform = NormalizeExecutionPlatform(target.platform);
   if (!platform.empty() && platform != "UNKNOWN" && !IsCpuPlatform(platform)) {
     SetDiagnosticNoexcept(diagnostic,
                           "Pinned kiteLLM release supports CPU execution only; "
@@ -81,9 +79,7 @@ Parameters<Params> ParamSpec() {
 bool ValidateCpuRunConfig(const std::string& platform,
                           const nlohmann::json& config,
                           std::string* diagnostic) {
-  std::string normalized = platform;
-  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                 [](unsigned char c) { return std::toupper(c); });
+  const std::string normalized = NormalizeExecutionPlatform(platform);
   if (!IsCpuPlatform(normalized)) return true;
   // 只强制显式的 CPU 约束；完整 schema 归 SDK 所有。
   if (config.is_object() && config.contains("model") &&

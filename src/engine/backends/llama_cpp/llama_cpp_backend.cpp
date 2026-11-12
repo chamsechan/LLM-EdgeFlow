@@ -1,7 +1,6 @@
 #include "engine/backends/llama_cpp/llama_cpp_backend.h"
 
 #include <algorithm>
-#include <cctype>
 #include <exception>
 #include <filesystem>
 #include <limits>
@@ -15,6 +14,7 @@
 #include "contracts/error_codes.h"
 #include "contracts/parameters.h"
 #include "engine/backend_registry.h"
+#include "engine/backends/execution_target.h"
 #include "engine/text_generation/common_autoregressive_generator.h"
 
 #ifdef HAVE_LLAMACPP
@@ -23,13 +23,6 @@
 
 namespace llm_edgeflow {
 namespace {
-
-std::string NormalizePlatform(std::string platform) {
-  std::transform(
-      platform.begin(), platform.end(), platform.begin(),
-      [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-  return platform;
-}
 
 #ifdef HAVE_LLAMACPP
 struct Params {
@@ -399,7 +392,7 @@ std::shared_ptr<IBackendSession> LlamaCppBackend::Load(
       return nullptr;
     }
     const std::string platform =
-        NormalizePlatform(spec.execution_target.platform);
+        NormalizeExecutionPlatform(spec.execution_target.platform);
     if (!platform.empty() && platform != "UNKNOWN" && platform != "CPU" &&
         platform != "CUDA") {
       SetDiagnosticNoexcept(

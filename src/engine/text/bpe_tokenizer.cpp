@@ -189,24 +189,6 @@ bool IsValidUtf8(std::string_view text) noexcept {
   return true;
 }
 
-void AppendCodePoint(std::string* out, uint32_t code_point) {
-  if (code_point < 0x80) {
-    out->push_back(static_cast<char>(code_point));
-  } else if (code_point < 0x800) {
-    out->push_back(static_cast<char>(0xC0 | (code_point >> 6)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  } else if (code_point < 0x10000) {
-    out->push_back(static_cast<char>(0xE0 | (code_point >> 12)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  } else {
-    out->push_back(static_cast<char>(0xF0 | (code_point >> 18)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 12) & 63)));
-    out->push_back(static_cast<char>(0x80 | ((code_point >> 6) & 63)));
-    out->push_back(static_cast<char>(0x80 | (code_point & 63)));
-  }
-}
-
 /**
  * @brief 读取一个码点。遇到非法序列时返回 false，pos 前进到最大有效前缀之后，
  * 出错的下一字节留给下一次读取，与 Rust String::from_utf8_lossy 的替换规则
@@ -1021,7 +1003,7 @@ int BpeTokenizer::Impl::EncodeSegment(std::string_view segment,
     }
     scratch.reserve(capacity);
     for (uint32_t code_point : code_points)
-      AppendCodePoint(&scratch, code_point);
+      utf8::AppendCodePoint(code_point, &scratch);
     normalized = scratch;
   }
   if (normalized.size() > std::numeric_limits<uint32_t>::max()) {

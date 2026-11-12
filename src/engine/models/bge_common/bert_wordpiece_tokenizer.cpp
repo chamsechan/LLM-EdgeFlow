@@ -55,27 +55,6 @@ bool IsCJK(uint32_t cp) noexcept {
          (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0x2F800 && cp <= 0x2FA1F);
 }
 
-/**
- * @brief 编码 Unicode code point 到 UTF-8
- */
-void EncodeUtf8CodePoint(uint32_t cp, std::string* out) {
-  if (cp < 0x80) {
-    out->push_back(static_cast<char>(cp));
-  } else if (cp < 0x800) {
-    out->push_back(static_cast<char>(0xC0 | ((cp >> 6) & 0x1F)));
-    out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-  } else if (cp < 0x10000) {
-    out->push_back(static_cast<char>(0xE0 | ((cp >> 12) & 0x0F)));
-    out->push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-    out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-  } else if (cp <= 0x10FFFF) {
-    out->push_back(static_cast<char>(0xF0 | ((cp >> 18) & 0x07)));
-    out->push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
-    out->push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-    out->push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-  }
-}
-
 }  // namespace
 
 bool BertWordPieceTokenizer::Load(const std::string& vocab_file_path,
@@ -214,10 +193,10 @@ bool BertWordPieceTokenizer::BasicTokenize(const std::string& text,
 
     if (IsCJK(cp) || IsPunctuation(cp)) {
       clean_text.push_back(' ');
-      EncodeUtf8CodePoint(cp, &clean_text);
+      utf8::AppendCodePoint(cp, &clean_text);
       clean_text.push_back(' ');
     } else {
-      EncodeUtf8CodePoint(cp, &clean_text);
+      utf8::AppendCodePoint(cp, &clean_text);
     }
   }
 

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -34,11 +35,7 @@ float CosineSimilarity(const std::vector<float>& v1,
 }
 
 float DotProduct(const std::vector<float>& v1, const std::vector<float>& v2) {
-  float dot = 0.0f;
-  for (size_t i = 0; i < v1.size(); ++i) {
-    dot += v1[i] * v2[i];
-  }
-  return dot;
+  return std::inner_product(v1.begin(), v1.end(), v2.begin(), 0.0f);
 }
 
 /**
@@ -85,16 +82,15 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
     uint32_t r_id = q_item.req_id;
     const auto& q_vec = q_item.data;
 
-    const std::vector<size_t>* cand_indices = nullptr;
-    if (req_candidate_indices.find(r_id) != req_candidate_indices.end()) {
-      cand_indices = &req_candidate_indices[r_id];
-    } else if (is_shared_candidates) {
-      cand_indices = &req_candidate_indices[0];
+    auto candidate_it = req_candidate_indices.find(r_id);
+    if (candidate_it == req_candidate_indices.end() && is_shared_candidates) {
+      candidate_it = req_candidate_indices.find(0);
     }
-
-    if (!cand_indices || cand_indices->empty()) {
+    if (candidate_it == req_candidate_indices.end() ||
+        candidate_it->second.empty()) {
       continue;
     }
+    const auto& cand_indices = candidate_it->second;
 
     struct ScoredItem {
       uint32_t original_sub_id;
@@ -102,9 +98,9 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
       std::string text;
     };
     std::vector<ScoredItem> scored_list;
-    scored_list.reserve(cand_indices->size());
+    scored_list.reserve(cand_indices.size());
 
-    for (size_t c_idx : *cand_indices) {
+    for (size_t c_idx : cand_indices) {
       const auto& c_item = (*candidates)[c_idx];
       if (q_vec.empty() || q_vec.size() != c_item.data.size() ||
           !std::all_of(q_vec.begin(), q_vec.end(),
@@ -121,8 +117,8 @@ NodeResult<RankedTextBatch> Run(const Inputs& inputs, const Params& params) {
         std::string text;
         uint64_t text_key =
             (static_cast<uint64_t>(c_item.req_id) << 32) | c_item.sub_id;
-        if (text_map.find(text_key) != text_map.end()) {
-          text = text_map[text_key];
+        if (const auto it = text_map.find(text_key); it != text_map.end()) {
+          text = it->second;
         } else {
           return NodeResult<RankedTextBatch>::Failure(
               "Candidate text provenance is missing", error::kInvalidInput);
