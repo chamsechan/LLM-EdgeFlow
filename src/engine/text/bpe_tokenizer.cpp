@@ -12,6 +12,7 @@
 #include <cstring>
 #include <exception>
 #include <limits>
+#include <queue>
 
 #include "contracts/diagnostic.h"
 #include "contracts/error_codes.h"
@@ -362,55 +363,20 @@ class BpeTokenizer::Impl final {
     int32_t id;
   };
 
-  // 候选合并的最大堆：优先级高者在前，同优先级取最左。自己实现而不用
-  // std::push_heap / pop_heap，是因为热路径上标准库的堆函数在带
-  // AddressSanitizer 的构建里每次调用都很慢。
-  class CandidateHeap {
-   public:
-    bool empty() const noexcept { return size_ == 0; }
-    void Push(const Candidate& candidate) {
-      if (size_ == items_.size()) items_.resize(items_.size() * 2);
-      size_t child = size_++;
-      while (child != 0) {
-        const size_t parent = (child - 1) / 2;
-        if (!Higher(candidate, items_[parent])) break;
-        items_[child] = items_[parent];
-        child = parent;
-      }
-      items_[child] = candidate;
-    }
-    void Pop(Candidate* top) noexcept {
-      *top = items_[0];
-      const size_t last = --size_;
-      if (last == 0) return;
-      size_t parent = 0;
-      for (size_t child = 1; child < last; child = parent * 2 + 1) {
-        if (child + 1 < last && Higher(items_[child + 1], items_[child])) {
-          ++child;
-        }
-        if (!Higher(items_[child], items_[last])) break;
-        items_[parent] = items_[child];
-        parent = child;
-      }
-      items_[parent] = items_[last];
-    }
-
-   private:
+  struct CandidateLowerPriority {
     /**
-     * @brief 依次比较：优先级、左段码点数、右段码点数（都是越大越先）、合成
-     * token 的 ID（越小越先）、位置（越靠左越先）。rank
-     * 模式下相同排名意味着相同的
-     * 合并规则，后面几项必然相同，所以只有最后的“最左”起作用。
+     * @brief 优先级、左段码点数、右段码点数越大越先，合成 token 的 ID
+     * 和位置越小越先。rank 模式下相同排名对应同一合并规则，后续比较
+     * 仅位置起作用。
+     * @return a 应晚于 b 合并时返回 true。
      */
-    static bool Higher(const Candidate& a, const Candidate& b) noexcept {
-      if (a.priority != b.priority) return a.priority > b.priority;
-      if (a.left_chars != b.left_chars) return a.left_chars > b.left_chars;
-      if (a.right_chars != b.right_chars) return a.right_chars > b.right_chars;
-      if (a.id != b.id) return a.id < b.id;
-      return a.left < b.left;
+    bool operator()(const Candidate& a, const Candidate& b) const noexcept {
+      if (a.priority != b.priority) return a.priority < b.priority;
+      if (a.left_chars != b.left_chars) return a.left_chars < b.left_chars;
+      if (a.right_chars != b.right_chars) return a.right_chars < b.right_chars;
+      if (a.id != b.id) return a.id > b.id;
+      return a.left > b.left;
     }
-    std::vector<Candidate> items_ = std::vector<Candidate>(16);
-    size_t size_ = 0;
   };
 
   /**
@@ -916,7 +882,8 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
   symbols.resize(count);
   symbols.back().next = -1;
 
-  CandidateHeap heap;
+  std::priority_queue<Candidate, std::vector<Candidate>, CandidateLowerPriority>
+      heap;
   Candidate candidate{};
   const auto add_candidate = [&](int32_t left, int32_t right) {
     if (left < 0 || right < 0 ||
@@ -924,14 +891,14 @@ int BpeTokenizer::Impl::MergeWord(std::string_view word,
                        static_cast<uint32_t>(right), &candidate)) {
       return;
     }
-    heap.Push(candidate);
+    heap.push(candidate);
   };
   for (size_t i = 1; i < symbols.size(); ++i) {
     add_candidate(static_cast<int32_t>(i) - 1, static_cast<int32_t>(i));
   }
-  Candidate top{};
   while (!heap.empty()) {
-    heap.Pop(&top);
+    const Candidate top = heap.top();
+    heap.pop();
     Symbol& left = symbols[top.left];
     Symbol& right = symbols[top.right];
     // 任何一侧在候选产生后发生过合并，大小之和都会变化。
