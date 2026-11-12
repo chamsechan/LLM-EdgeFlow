@@ -14,20 +14,30 @@ bool IsScalar(uint32_t code_point) noexcept {
 }
 
 /**
+ * @brief 在已按 predicate 分区的 [first, last) 中查找首个 false 的索引。
+ * 所有索引均满足 predicate 时返回 last。
+ */
+template <typename Predicate>
+size_t PartitionPointIndex(size_t first, size_t last,
+                           Predicate predicate) noexcept {
+  while (first < last) {
+    const size_t middle = first + (last - first) / 2;
+    if (predicate(middle)) {
+      first = middle + 1;
+    } else {
+      last = middle;
+    }
+  }
+  return first;
+}
+
+/**
  * @brief 在 stride 个 uint32 为一行、首列为键的有序表中查找键。
  */
 const uint32_t* FindRow(const uint32_t* table, size_t rows, size_t stride,
                         uint32_t key) noexcept {
-  size_t low = 0;
-  size_t high = rows;
-  while (low < high) {
-    const size_t middle = low + (high - low) / 2;
-    if (table[middle * stride] < key) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
+  const size_t low = PartitionPointIndex(
+      0, rows, [&](size_t middle) { return table[middle * stride] < key; });
   return low < rows && table[low * stride] == key ? table + low * stride
                                                   : nullptr;
 }
@@ -106,16 +116,10 @@ bool UnicodeTables::Bind(const UnicodeSections& sections, bool need_properties,
 
 uint32_t UnicodeTables::Flags(uint32_t code_point) const noexcept {
   // 找到第一个止点不小于 code_point 的区间。
-  size_t low = 0;
-  size_t high = sections_.property_rows;
-  while (low < high) {
-    const size_t middle = low + (high - low) / 2;
-    if (sections_.properties[middle * 3 + 1] < code_point) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
+  const size_t low =
+      PartitionPointIndex(0, sections_.property_rows, [&](size_t middle) {
+        return sections_.properties[middle * 3 + 1] < code_point;
+      });
   return low < sections_.property_rows &&
                  sections_.properties[low * 3] <= code_point
              ? sections_.properties[low * 3 + 2]
@@ -141,17 +145,11 @@ uint32_t UnicodeTables::Compose(uint32_t first,
       second < kTrailBase + kTrailCount) {
     return first + (second - kTrailBase);
   }
-  size_t low = 0;
-  size_t high = sections_.composition_rows;
-  while (low < high) {
-    const size_t middle = low + (high - low) / 2;
-    const uint32_t* row = sections_.compositions + middle * 3;
-    if (row[0] < first || (row[0] == first && row[1] < second)) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
+  const size_t low =
+      PartitionPointIndex(0, sections_.composition_rows, [&](size_t middle) {
+        const uint32_t* row = sections_.compositions + middle * 3;
+        return row[0] < first || (row[0] == first && row[1] < second);
+      });
   const uint32_t* row = sections_.compositions + low * 3;
   return low < sections_.composition_rows && row[0] == first && row[1] == second
              ? row[2]

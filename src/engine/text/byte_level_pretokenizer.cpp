@@ -25,13 +25,9 @@ bool SplitByteLevelQwen2(const UnicodeTables& tables, std::string_view text,
   std::vector<uint32_t> chars;
   std::vector<uint32_t> flags;
   std::vector<size_t> offsets;
-  // 码点数不超过字节数：先按字节数分配，填完后收缩。按下标写入，避免在逐字符
-  // 的循环里对向量 push_back 局部变量（在带 AddressSanitizer 的构建里会慢
-  // 两个数量级）。
-  chars.resize(text.size());
-  flags.resize(text.size());
-  offsets.resize(text.size() + 1);
-  size_t count = 0;
+  chars.reserve(text.size());
+  flags.reserve(text.size());
+  offsets.reserve(text.size() + 1);
   for (size_t position = 0; position < text.size();) {
     uint32_t code_point = static_cast<unsigned char>(text[position]);
     size_t consumed = 1;
@@ -40,16 +36,12 @@ bool SplitByteLevelQwen2(const UnicodeTables& tables, std::string_view text,
                                        text.size() - position, &code_point);
       if (consumed == 0) return false;
     }
-    chars[count] = code_point;
-    flags[count] = tables.Flags(code_point);
-    offsets[count] = position;
-    ++count;
+    chars.push_back(code_point);
+    flags.push_back(tables.Flags(code_point));
+    offsets.push_back(position);
     position += consumed;
   }
-  offsets[count] = text.size();
-  chars.resize(count);
-  flags.resize(count);
-  offsets.resize(count + 1);
+  offsets.push_back(text.size());
 
   const size_t n = chars.size();
   const auto letter = [&](size_t p) {
